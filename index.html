@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>コピペ履歴</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="app-header">
+  <h1>📋 コピペ履歴</h1>
+  <p class="subtitle">コピーした内容を貯めて、いつでもサッと取り出せます</p>
+</header>
+
+<main class="container">
+  <section class="input-area">
+    <textarea id="new-entry" placeholder="ここにテキストを貼り付けて「追加」、またはクリップボードから読み込んでください" rows="3"></textarea>
+    <div class="input-actions">
+      <button id="add-btn" class="btn btn-primary">履歴に追加</button>
+      <button id="read-clipboard-btn" class="btn btn-secondary">クリップボードから読み込む</button>
+      <label class="watch-toggle">
+        <input type="checkbox" id="watch-toggle" />
+        自動監視
+      </label>
+    </div>
+  </section>
+
+  <section class="toolbar">
+    <input type="search" id="search-box" placeholder="履歴を検索..." />
+    <button id="clear-all-btn" class="btn btn-danger">すべて削除</button>
+  </section>
+
+  <section id="pinned-section" class="history-section" hidden>
+    <h2>📌 ピン留め</h2>
+    <ul id="pinned-list" class="history-list"></ul>
+  </section>
+
+  <section class="history-section">
+    <h2>履歴</h2>
+    <ul id="history-list" class="history-list"></ul>
+    <p id="empty-message" class="empty-message" hidden>まだ履歴がありません</p>
+  </section>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+
+<template id="item-template">
+  <li class="history-item" data-id="">
+    <div class="item-text"></div>
+    <div class="item-meta">
+      <span class="item-time"></span>
+      <div class="item-actions">
+        <button class="icon-btn pin-btn" title="ピン留め">📌</button>
+        <button class="icon-btn copy-btn" title="コピー">📄 コピー</button>
+        <button class="icon-btn delete-btn" title="削除">🗑</button>
+      </div>
+    </div>
+  </li>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>
