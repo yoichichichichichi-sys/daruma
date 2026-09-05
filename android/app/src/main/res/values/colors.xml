@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="white">#FFFFFF</color>
+
+    <color name="paper">#EEF1F2</color>
+    <color name="ink">#1F2733</color>
+    <color name="ink_soft">#5B6672</color>
+    <color name="ink_faint">#8A939C</color>
+
+    <color name="accent">#2F6F62</color>
+    <color name="accent_dark">#1F5347</color>
+    <color name="danger">#B23B3B</color>
+    <color name="pin_active">#C97A2E</color>
+    <color name="icon_default">#5B6672</color>
+
+    <color name="line">#D7DDE1</color>
+    <color name="banner_bg">#DCECE7</color>
+
+    <color name="widget_background">#F1F0EC</color>
+    <color name="widget_title_text">#5B6672</color>
+    <color name="widget_item_background">#FFFFFF</color>
+    <color name="widget_item_text">#1F2733</color>
+    <color name="widget_item_time">#8A939C</color>
+</resources>

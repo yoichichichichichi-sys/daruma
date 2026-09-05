@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">コピペ帳</string>
+    <string name="app_tagline">コピーした瞬間に、自動で履歴に残ります</string>
+    <string name="new_entry_hint">コピーしたい文章をここに貼り付けてください</string>
+    <string name="add_button_label">この内容を保存</string>
+    <string name="search_hint">保存した内容を検索</string>
+    <string name="clear_all_label">すべて削除</string>
+    <string name="empty_message">まだ何も保存されていません</string>
+    <string name="pin_action">ピン留め</string>
+    <string name="delete_action">削除</string>
+    <string name="toast_copied">コピーしました</string>
+    <string name="toast_saved">保存しました</string>
+    <string name="confirm_clear_all">すべての履歴を削除しますか？（ピン留めも含みます）</string>
+    <string name="delete_all">すべて削除</string>
+    <string name="cancel">キャンセル</string>
+    <string name="accessibility_banner_message">自動保存をオンにすると、他のアプリでコピーした内容もこの一覧に自動で溜まります。設定画面で「コピペ帳」を有効にしてください。</string>
+    <string name="enable_accessibility_action">設定を開く</string>
+    <string name="accessibility_service_description">クリップボードにコピーされた内容を自動で履歴に保存するために使用します。画面の内容そのものは読み取りません。</string>
+    <string name="widget_empty_message">コピーした内容がここに表示されます</string>
+</resources>
