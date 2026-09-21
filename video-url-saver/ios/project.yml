@@ -1,0 +1,63 @@
+name: VideoUrlNotebook
+options:
+  bundleIdPrefix: com.videourlnotebook
+  deploymentTarget:
+    iOS: "17.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+
+targets:
+  VideoUrlNotebook:
+    type: application
+    platform: iOS
+    sources:
+      - path: Shared
+      - path: VideoUrlNotebook
+    info:
+      path: VideoUrlNotebook/Info.plist
+    entitlements:
+      path: VideoUrlNotebook/VideoUrlNotebook.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.videourlnotebook.app
+        PRODUCT_NAME: 動画URL帳
+        TARGETED_DEVICE_FAMILY: "1,2"
+    dependencies:
+      - target: VideoUrlNotebookWidgetExtension
+        embed: true
+      - target: VideoUrlNotebookShareExtension
+        embed: true
+
+  VideoUrlNotebookWidgetExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Shared
+      - path: VideoUrlNotebookWidget
+    info:
+      path: VideoUrlNotebookWidget/Info.plist
+    entitlements:
+      path: VideoUrlNotebookWidget/VideoUrlNotebookWidget.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.videourlnotebook.app.widget
+        PRODUCT_NAME: 動画URL帳ウィジェット
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  VideoUrlNotebookShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Shared
+      - path: VideoUrlNotebookShare
+    info:
+      path: VideoUrlNotebookShare/Info.plist
+    entitlements:
+      path: VideoUrlNotebookShare/VideoUrlNotebookShare.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.videourlnotebook.app.share
+        PRODUCT_NAME: 動画URL帳に保存
+        TARGETED_DEVICE_FAMILY: "1,2"

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>保存しています... - 動画URL帳</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<main class="container share-target-container">
+  <p class="share-target-message">共有されたURLを保存しています...</p>
+</main>
+<script>
+  // Android's share sheet lands here when a PWA is chosen as a share
+  // target (see manifest.webmanifest's "share_target"). YouTube and most
+  // apps put the shared link in "text", some in "url" directly.
+  (() => {
+    const URL_REGEX = /https?:\/\/[^\s<>"']+/i;
+    const params = new URLSearchParams(window.location.search);
+    const candidates = [params.get("url"), params.get("text"), params.get("title")]
+      .filter(Boolean);
+
+    let found = null;
+    for (const candidate of candidates) {
+      const match = candidate.match(URL_REGEX);
+      if (match) {
+        found = match[0];
+        break;
+      }
+    }
+
+    try {
+      const key = "videoUrlNotebook.shareQueue";
+      const existing = JSON.parse(localStorage.getItem(key) || "[]");
+      if (found) existing.push(found);
+      localStorage.setItem(key, JSON.stringify(existing));
+    } catch {
+      // ignore storage failures; index.html will just show nothing new
+    }
+
+    setTimeout(() => {
+      window.location.replace("index.html");
+    }, 400);
+  })();
+</script>
+</body>
+</html>

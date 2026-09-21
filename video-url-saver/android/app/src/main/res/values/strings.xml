@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">動画URL帳</string>
+    <string name="app_tagline">動画やサイトのURLを保存して、サムネイルでサッと見返せます</string>
+    <string name="new_url_hint">https://... のURLを貼り付け</string>
+    <string name="add_button_label">保存</string>
+    <string name="read_clipboard_label">クリップボードから読み込む</string>
+    <string name="search_hint">タイトル・サイト名・URLで検索</string>
+    <string name="clear_all_label">すべて削除</string>
+    <string name="empty_message">まだ保存したURLがありません。\n動画やサイトのリンクを貼り付けてみましょう。</string>
+    <string name="copy_url_action">URLをコピー</string>
+    <string name="delete_action">削除</string>
+    <string name="toast_copied">コピーしました</string>
+    <string name="toast_saved">保存しました</string>
+    <string name="toast_invalid_url">有効なURLが見つかりませんでした</string>
+    <string name="toast_clipboard_empty">クリップボードは空です</string>
+    <string name="toast_share_no_url">共有された内容にURLが見つかりませんでした</string>
+    <string name="confirm_clear_all">保存したURLをすべて削除しますか？</string>
+    <string name="delete_all">すべて削除</string>
+    <string name="cancel">キャンセル</string>
+    <string name="accessibility_banner_message">自動保存をオンにすると、他のアプリでURLをコピーした瞬間にこの一覧に自動で溜まります。設定画面で「動画URL帳」を有効にしてください。</string>
+    <string name="enable_accessibility_action">設定を開く</string>
+    <string name="accessibility_service_description">クリップボードにコピーされたURLを自動で保存するために使用します。画面の内容そのものは読み取りません。</string>
+    <string name="widget_empty_message">保存したURLがここに表示されます</string>
+    <string name="share_target_label">動画URL帳に保存</string>
+</resources>

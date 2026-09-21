@@ -19,3 +19,11 @@
 ネットワーク・OS 制約でアクセスできないクラウド Linux コンテナ）では
 コンパイル・実機確認ができていません。Android Studio / Xcode でビルドして
 確認してください。
+
+## 動画URL帳（動画・サイトURL保存アプリ）
+
+- **`video-url-saver/`** — 動画やサイトのURLをコピー/共有するだけで記憶させ、
+  サムネイル付きのグリッドでサッと見返せる派生アプリです。YouTubeアプリ等の
+  共有シートから直接保存できる仕組み（Androidの共有ターゲット / iOSの共有
+  エクステンション / PWAのWeb Share Target）を備えています。詳細は
+  [`video-url-saver/README.md`](video-url-saver/README.md) を参照してください。
