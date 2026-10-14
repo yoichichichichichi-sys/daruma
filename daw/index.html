@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Daruma DAW</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">●</span>
+        <input id="title" class="title-input" aria-label="曲名" />
+      </div>
+
+      <div class="transport" role="group" aria-label="トランスポート">
+        <button id="play" class="btn primary" title="再生 / 停止（Space）">▶ 再生</button>
+        <label class="field">BPM <input id="bpm" type="number" min="30" max="300" /></label>
+        <label class="field">キー
+          <select id="key-root"></select>
+          <select id="key-mode">
+            <option value="major">メジャー</option>
+            <option value="minor">マイナー</option>
+          </select>
+        </label>
+        <label class="field">小節 <input id="bars" type="number" min="1" max="256" /></label>
+        <label class="field check"><input id="loop" type="checkbox" /> ループ</label>
+        <label class="field check"><input id="metronome" type="checkbox" /> クリック</label>
+        <span id="position" class="position">1.1</span>
+      </div>
+
+      <div class="actions">
+        <button id="undo" class="btn" title="元に戻す（Ctrl+Z）">↶</button>
+        <button id="redo" class="btn" title="やり直し（Ctrl+Shift+Z）">↷</button>
+        <button id="export-midi" class="btn">MIDI 書き出し</button>
+        <button id="menu-btn" class="btn" aria-haspopup="true">⋯</button>
+        <div id="menu" class="menu" hidden>
+          <button data-menu="new">新規プロジェクト</button>
+          <button data-menu="save">プロジェクトを保存（.json）</button>
+          <button data-menu="load">プロジェクトを開く…</button>
+          <button data-menu="settings">設定（Claude / MIDI 出力）</button>
+        </div>
+        <input id="load-file" type="file" accept="application/json,.json" hidden />
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="tracks" aria-label="トラック">
+        <div class="section-head">
+          <h2>トラック</h2>
+          <button id="add-track" class="btn small">＋ 追加</button>
+        </div>
+        <ul id="track-list" class="track-list"></ul>
+      </section>
+
+      <section class="editor" aria-label="ピアノロール">
+        <div class="section-head">
+          <h2 id="editor-title">ピアノロール</h2>
+          <div class="editor-tools">
+            <label class="field">グリッド
+              <select id="grid">
+                <option value="1">1/4</option>
+                <option value="0.5">1/8</option>
+                <option value="0.25" selected>1/16</option>
+              </select>
+            </label>
+            <label class="field">長さ
+              <select id="note-len">
+                <option value="0.25">1/16</option>
+                <option value="0.5">1/8</option>
+                <option value="1" selected>1/4</option>
+                <option value="2">1/2</option>
+                <option value="4">1 小節</option>
+              </select>
+            </label>
+            <label class="field">ズーム <input id="zoom" type="range" min="16" max="96" value="40" /></label>
+          </div>
+        </div>
+        <div id="roll-wrap" class="roll-wrap">
+          <div id="roll-keys" class="roll-keys"></div>
+          <div id="roll-scroll" class="roll-scroll">
+            <canvas id="roll"></canvas>
+            <div id="playhead" class="playhead" hidden></div>
+          </div>
+        </div>
+        <p class="hint">クリックでノート追加（ドラッグで長さ）、ノートをクリックで削除。上段のコード名をクリックすると提案が出ます。</p>
+      </section>
+
+      <section class="assistant" aria-label="アシスタント">
+        <div class="section-head">
+          <h2>オペレーター</h2>
+          <span id="mode-badge" class="badge">ルールモード</span>
+        </div>
+        <div id="ideas" class="ideas"></div>
+        <div id="chat" class="chat" aria-live="polite"></div>
+        <form id="chat-form" class="chat-form">
+          <textarea id="chat-input" rows="2" placeholder="例: 切ない進行で、メロディとベースも付けて。テンポ92"></textarea>
+          <button class="btn primary" type="submit">送信</button>
+        </form>
+      </section>
+    </main>
+
+    <dialog id="settings" class="dialog">
+      <form method="dialog">
+        <h2>設定</h2>
+        <fieldset>
+          <legend>Claude（任意）</legend>
+          <p class="muted">
+            API キーを入れると、自由な言い方の指示や作曲の相談を Claude が DAW を操作しながらこなします。
+            キーはこのブラウザの localStorage にだけ保存され、Anthropic API にのみ送信されます。
+          </p>
+          <label class="stack">API キー <input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-..." /></label>
+          <label class="stack">モデル <select id="model"></select></label>
+          <label class="field check"><input id="use-claude" type="checkbox" /> Claude を使う（オフならルールベースのオペレーター）</label>
+        </fieldset>
+        <fieldset>
+          <legend>MIDI 出力（外部 DAW を鳴らす）</legend>
+          <p class="muted">
+            IAC ドライバ（Mac）や loopMIDI（Windows）などの仮想 MIDI ポートを選ぶと、再生中のノートを
+            Logic / Ableton Live / Cubase などに送れます。ドラムは ch10、その他は ch1 から順に割り当てます。
+          </p>
+          <label class="stack">出力先 <select id="midi-out"><option value="">（なし）</option></select></label>
+          <label class="field check"><input id="internal-synth" type="checkbox" checked /> 内蔵シンセも鳴らす</label>
+        </fieldset>
+        <div class="dialog-actions">
+          <button class="btn primary" value="ok">閉じる</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
