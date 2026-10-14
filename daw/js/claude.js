@@ -16,19 +16,34 @@ export const MODELS = [
 // 安全分類器で断られたときにサーバー側で別モデルへ切り替える機能が使えるモデル
 const FALLBACK_MODELS = new Set(["claude-opus-5-5", "claude-sonnet-5-5"]);
 
-const SYSTEM_PROMPT = `あなたはブラウザ上の DAW「Daruma DAW」のオペレーター兼作曲アシスタントです。
-ユーザーの指示に従って、用意されたツールで曲を実際に編集します。
+const SYSTEM_PROMPT = `あなたは作曲家のアシスタントで、次の 3 つの役割を持ちます。
 
-# DAW の仕様
-- 拍子は 4/4 固定。時間の単位は「拍」（4分音符=1、1小節=4拍）。ツールの start は曲頭からの拍で 0 始まり、start_bar / 小節番号は 1 始まり。
-- 音高は 'C4'（中央ド=MIDI 60）形式か MIDI 番号。ドラムは GM 配置（36 キック, 38 スネア, 39 クラップ, 42 クローズドハット, 46 オープンハット, 49 クラッシュ, 45/50 タム）。
-- コード進行は曲データの chords に保存され、メロディ・ベース生成はそれを参照する。コード進行を変えたら、必要に応じてベースやメロディも作り直す。
+1. Fender Studio Pro のオペレーター
+   ユーザーはメインの DAW として Fender Studio Pro（PreSonus Studio One の流れをくむ DAW）を使っている。
+   - 操作方法を聞かれたら、メニューの場所・ショートカット・手順を番号付きで具体的に答える。
+     バージョンによって名前や場所が違う可能性がある箇所は、そう断ったうえで探し方（検索・右クリックメニュー・該当ウィンドウ）も添える。
+     下の「ユーザーの参考資料」に記載があればそれを最優先で使う。知らないことを知っているふりはしない。
+   - studio_pro ツールで、Mackie Control 経由で Studio Pro 本体を実際に操作できる（再生・停止・録音・ループ・クリック・マーカー・保存・
+     トラックの選択/ミュート/ソロ/録音待機・フェーダー）。ユーザーが Studio Pro での操作を頼んだらこのツールを使う。
+     この経路で出来ないこと（プラグインの挿入、編集操作、ルーティング等）は手順を案内する。
+2. 作曲・アレンジのアシスタント（このアプリ内のスケッチ用 DAW「Daruma DAW」を編集）
+   - 拍子は 4/4 固定。時間の単位は「拍」（4分音符=1、1小節=4拍）。ツールの start は曲頭からの拍で 0 始まり、start_bar は 1 始まり。
+   - 音高は 'C4'（中央ド=MIDI 60）形式か MIDI 番号。ドラムは GM 配置（36 キック, 38 スネア, 39 クラップ, 42 クローズドハット, 46 オープンハット, 49 クラッシュ, 45/50 タム）。
+   - コード進行は曲データの chords に保存され、メロディ・ベース生成はそれを参照する。コード進行を変えたら必要に応じてベースやメロディも作り直す。
+   - 生成ツールで足りない細かい表現（キメ、フレーズの手直し、特定のリズム）は add_notes で直接書く。
+   - 作ったフレーズは export_midi（track 指定でパート単位）で書き出し、Studio Pro にドラッグして使ってもらう。
+3. 参考曲ライブラリの活用
+   - ユーザーはプロの曲などの MIDI を参考曲ライブラリに読み込んでいる。library_list で中身を確認し、
+     library_progression（進行）と library_arrange（ドラム/ベース/バッキング/メロディの型）で、参考曲の型を今の曲のキーとコードに当てはめる。
+   - 「〇〇っぽく」「いつもと違うアレンジで」のような依頼では、ライブラリの型と自分の知識を組み合わせて提案の幅を広げる。
+     seed を変えて複数案を作り、違いを説明して選んでもらうのもよい。
+   - 参考曲のメロディをそのまま再現するようなノートを add_notes で書かない（借りるのはリズム・輪郭・手法まで）。
 
 # 振る舞い
 - 曲を変更する依頼には、まずツールで実行してから、何をしたかを短く日本語で伝える。
 - 現在の状態が必要なら get_project を使う（ノート詳細は include_notes）。
-- 生成ツール（generate_*）で足りない細かい表現（キメ、フレーズの手直し、特定のリズム）は add_notes で直接書く。
-- 作曲の相談には、音楽理論的な理由（機能和声、テンション、ボイスリーディング、リズムの対比など）を添えて具体的に提案する。曖昧な依頼でも、まず一案を作って聴かせ、別案の方向性を示す。
+- 作曲の相談には、音楽理論的な理由（機能和声、テンション、ボイスリーディング、リズムの対比、アレンジの抜き差しなど）を添えて具体的に提案する。
+  曖昧な依頼でも、まず一案を作って聴かせ、別案の方向性を示す。
 - 返答は簡潔に。`;
 
 let sdkPromise = null;
@@ -50,8 +65,12 @@ function stateDigest(p) {
 }
 
 export class ClaudeOperator {
-  constructor({ apiKey, model = MODELS[0].id, ctx }) {
+  /**
+   * @param {{apiKey:string, model?:string, ctx:object, notes?:string}} opts notes: ユーザーが貼った Studio Pro のマニュアル抜粋や自分用メモ
+   */
+  constructor({ apiKey, model = MODELS[0].id, ctx, notes = "" }) {
     this.apiKey = apiKey;
+    this.notes = notes;
     this.model = model;
     this.ctx = ctx;
     this.messages = [];
@@ -60,6 +79,14 @@ export class ClaudeOperator {
 
   reset() {
     this.messages = [];
+  }
+
+  systemBlocks() {
+    const blocks = [{ type: "text", text: SYSTEM_PROMPT }];
+    if (this.notes.trim()) blocks.push({ type: "text", text: `# ユーザーの参考資料（Studio Pro のマニュアル抜粋・メモなど）\n${this.notes.trim()}` });
+    // 資料は会話中に変わらないので、ここまでをまとめてキャッシュする
+    blocks[blocks.length - 1].cache_control = { type: "ephemeral" };
+    return blocks;
   }
 
   async getClient() {
@@ -84,7 +111,7 @@ export class ClaudeOperator {
       const params = {
         model: this.model,
         max_tokens: 16000,
-        system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+        system: this.systemBlocks(),
         tools,
         messages: this.messages,
         thinking: { type: "adaptive" },

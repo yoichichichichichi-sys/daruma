@@ -6,6 +6,8 @@ import { BEATS_PER_BAR, parseKey, keyNameJa, keyName, parseChord, parseNote, rom
 import { generateChordNotes, generateBass, generateMelody, generateDrums, layoutChords, sortChords, DRUM_STYLES } from "./generate.js";
 import { createTrack, findTrack, normalizeNotes, clearRange, INSTRUMENTS, INSTRUMENT_ALIASES } from "./project.js";
 import { analyzeProject, suggestProgressions } from "./assistant.js";
+import { learnedProgression, learnedBass, learnedDrums, learnedComping, learnedMelody, describeSong } from "./library.js";
+import { MCU_BUTTONS, dbToFader } from "./studiopro.js";
 
 const CHORD_STYLES = ["block", "half", "pop", "stabs", "offbeat", "arpeggio", "broken"];
 const BASS_STYLES = ["root", "eighth", "octave", "walking", "synco"];
@@ -55,7 +57,7 @@ function ensureLength(p, endBar) {
 const trackProp = { type: "string", description: "トラック名または番号（1始まり）" };
 
 /**
- * @typedef {{store: import('./project.js').Store, transport?: {play():void, stop():void, isPlaying():boolean}, exportMidi?: () => string}} Ctx
+ * @typedef {{store: import('./project.js').Store, transport?: {play():void, stop():void, isPlaying():boolean}, exportMidi?: (trackIds?: string[]) => string, library?: import('./library.js').Library, studio?: import('./studiopro.js').StudioProRemote}} Ctx
  * @typedef {{name:string, title:string, description:string, input_schema:object, run:(ctx:Ctx, input:any)=>{message:string, data?:any}}} Action
  */
 
@@ -556,12 +558,170 @@ export const ACTIONS = [
   {
     name: "export_midi",
     title: "MIDI 書き出し",
-    description: "曲を Standard MIDI File として書き出す（ダウンロード）。",
-    input_schema: { type: "object", properties: {}, additionalProperties: false },
-    run(ctx) {
+    description: "曲を Standard MIDI File として書き出す（ダウンロード）。track を指定するとそのパートだけ書き出す（Studio Pro にパート単位でドラッグする用）。",
+    input_schema: { type: "object", properties: { track: trackProp }, additionalProperties: false },
+    run(ctx, { track } = {}) {
       if (!ctx.exportMidi) return { message: "（この環境では書き出せません）" };
-      const file = ctx.exportMidi();
-      return { message: `MIDI ファイル「${file}」を書き出しました。お使いの DAW に読み込めます。` };
+      const t = track != null ? requireTrack(ctx.store.project, track) : null;
+      const file = ctx.exportMidi(t ? [t.id] : undefined);
+      return { message: `MIDI ファイル「${file}」を書き出しました。Studio Pro のアレンジビューにドラッグすると読み込めます。` };
+    },
+  },
+
+  // ---------- 参考曲ライブラリ ----------
+  {
+    name: "library_list",
+    title: "参考曲ライブラリを見る",
+    description: "読み込んだ参考曲（MIDI）の一覧と、検出したキー・代表的なコード進行・抽出できた型の数を返す。query で曲名・タグを絞り込み。",
+    input_schema: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
+    run(ctx, { query } = {}) {
+      const songs = requireLibrary(ctx, query, false);
+      if (!songs.length) return { message: "参考曲ライブラリは空です。「⋯ → 参考曲ライブラリ」から MIDI ファイルを読み込んでください。" };
+      const lines = songs.map((s) => {
+        const d = describeSong(s);
+        return `・${s.name}${s.tags.length ? ` [${s.tags.join(", ")}]` : ""}: ${d.key}, ${s.bpm}BPM, ${s.bars}小節, 進行 ${d.progression}（${d.counts}）`;
+      });
+      return { message: `参考曲 ${songs.length} 曲\n${lines.join("\n")}` };
+    },
+  },
+  {
+    name: "library_progression",
+    title: "参考曲からコード進行",
+    description:
+      "参考曲ライブラリから学んだコード進行を、今のキーに移して書き込む。method=loop は参考曲によく出る 4 小節ループを使う、markov は複数曲のコードの流れを学習して新しい進行を作る。source で曲名・タグを絞り込み（省略時は全曲）。",
+    input_schema: {
+      type: "object",
+      properties: {
+        source: { type: "string" },
+        method: { type: "string", enum: ["loop", "markov"] },
+        bars: { type: "integer", minimum: 1, maximum: 64 },
+        start_bar: { type: "integer", minimum: 1 },
+        style: { type: "string", enum: CHORD_STYLES },
+        seed: { type: "integer" },
+      },
+      additionalProperties: false,
+    },
+    run(ctx, { source, method = "loop", bars, start_bar = 1, style = "block", seed } = {}) {
+      const songs = requireLibrary(ctx, source);
+      const p0 = ctx.store.project;
+      const n = bars ?? Math.max(4, p0.bars - (start_bar - 1));
+      const sd = seed ?? Math.floor(Math.random() * 1e9);
+      const res = learnedProgression(songs, p0.key, { method, bars: n, seed: sd, startBar: start_bar - 1 });
+      if (!res || !res.chords.length) throw new ActionError("参考曲からコード進行を取り出せませんでした（コードが検出できる曲を入れてください）。");
+      let name;
+      ctx.store.commit("参考曲から進行", (p) => {
+        const s = (start_bar - 1) * BEATS_PER_BAR;
+        const e = (start_bar - 1 + n) * BEATS_PER_BAR;
+        ensureLength(p, start_bar - 1 + n);
+        p.chords = sortChords([...p.chords.filter((c) => c.bar * BEATS_PER_BAR + (c.beat || 0) < s || c.bar * BEATS_PER_BAR + (c.beat || 0) >= e), ...res.chords]);
+        const t = ensureTrack(p, undefined, "piano", "コード");
+        name = t.name;
+        clearRange(t, s, e);
+        t.notes = normalizeNotes([...t.notes, ...generateChordNotes(res.chords, style)]);
+      });
+      return { message: `参考曲（${res.source}）の${method === "markov" ? "流れから作った" : ""}進行 ${res.roman.slice(0, 8).join(" - ")} を「${name}」に書きました: ${res.chords.map((c) => c.symbol).join(" → ")}（seed ${sd}）` };
+    },
+  },
+  {
+    name: "library_arrange",
+    title: "参考曲の型でアレンジ",
+    description:
+      "参考曲ライブラリから学んだ型で、今のコード進行に合わせてパートを作る。parts: drums=グルーヴとフィル, bass=ベースのリズムとコード上の動き, comping=バッキングのリズム, melody=メロディのリズムと輪郭（音は今のコードに合わせて作り直す）。source で曲名・タグを絞り込み。seed を変えると別案。",
+    input_schema: {
+      type: "object",
+      properties: {
+        source: { type: "string" },
+        parts: { type: "array", items: { type: "string", enum: ["drums", "bass", "comping", "melody"] }, minItems: 1 },
+        start_bar: { type: "integer", minimum: 1 },
+        bars: { type: "integer", minimum: 1 },
+        seed: { type: "integer" },
+      },
+      additionalProperties: false,
+    },
+    run(ctx, { source, parts = ["drums", "bass", "comping"], start_bar = 1, bars, seed } = {}) {
+      const songs = requireLibrary(ctx, source);
+      const p0 = ctx.store.project;
+      const [s, n] = barRange(p0, start_bar - 1, bars);
+      const needsChords = parts.some((x) => x !== "drums");
+      if (needsChords && !p0.chords.length) throw new ActionError("先にコード進行を作ってください（「参考曲から進行」も使えます）。");
+      const sd = seed ?? Math.floor(Math.random() * 1e9);
+      const opts = { startBar: s, bars: n, seed: sd };
+      const results = {
+        drums: parts.includes("drums") ? learnedDrums(songs, opts) : undefined,
+        bass: parts.includes("bass") ? learnedBass(songs, p0.chords, opts) : undefined,
+        comping: parts.includes("comping") ? learnedComping(songs, p0.chords, opts) : undefined,
+        melody: parts.includes("melody") ? learnedMelody(songs, p0.chords, p0.key, opts) : undefined,
+      };
+      const target = { drums: ["drums", "ドラム"], bass: ["bass", "ベース"], comping: ["piano", "コード"], melody: ["lead", "メロディ"] };
+      const done = [];
+      const missing = [];
+      ctx.store.commit("参考曲でアレンジ", (p) => {
+        for (const part of parts) {
+          const r = results[part];
+          if (!r || !r.notes.length) {
+            missing.push(part);
+            continue;
+          }
+          const [inst, defName] = target[part];
+          const t = ensureTrack(p, undefined, inst, defName);
+          clearRange(t, s * BEATS_PER_BAR, (s + n) * BEATS_PER_BAR);
+          t.notes = normalizeNotes([...t.notes, ...r.notes]);
+          done.push(`${PART_JA[part]}→「${t.name}」`);
+        }
+      });
+      if (!done.length) throw new ActionError(`参考曲に使える ${missing.map((x) => PART_JA[x]).join("・")} の型がありませんでした。`);
+      return {
+        message: `参考曲（${songs.map((x) => x.name).slice(0, 3).join("・")}${songs.length > 3 ? " ほか" : ""}）の型で ${s + 1}〜${s + n} 小節を作りました: ${done.join("、")}${missing.length ? `（${missing.map((x) => PART_JA[x]).join("・")}は型が無く省略）` : ""}。seed ${sd}`,
+      };
+    },
+  },
+
+  // ---------- Fender Studio Pro のリモート操作 ----------
+  {
+    name: "studio_pro",
+    title: "Studio Pro を操作",
+    description:
+      `Fender Studio Pro を Mackie Control 経由で操作する。command: ${Object.keys(MCU_BUTTONS).join(", ")}（トランスポートや画面操作のボタン）, ` +
+      `track_select / track_mute / track_solo / track_arm（track 番号が必要）, fader（track 番号か 0=マスター と value 0〜1 または db）, bank_reset（バンク位置の推定をトラック 1〜8 に戻す）。` +
+      "トラック番号は Studio Pro のミキサーでの並び順（1 始まり）で、このアプリのトラック番号とは別。",
+    input_schema: {
+      type: "object",
+      properties: {
+        command: { type: "string", enum: [...Object.keys(MCU_BUTTONS), "track_select", "track_mute", "track_solo", "track_arm", "fader", "bank_reset"] },
+        track: { type: "integer", minimum: 0 },
+        value: { type: "number", minimum: 0, maximum: 1 },
+        db: { type: "number", minimum: -60, maximum: 6 },
+      },
+      required: ["command"],
+      additionalProperties: false,
+    },
+    run(ctx, { command, track, value, db }) {
+      const sp = ctx.studio;
+      if (!sp) throw new ActionError("この環境では Studio Pro を操作できません。");
+      if (!sp.connected) throw new ActionError("Studio Pro 操作用の MIDI ポートが未設定です。「⋯ → 設定」で選び、Studio Pro 側でそのポートを Mackie Control として追加してください。");
+      try {
+        if (command === "bank_reset") {
+          sp.resetBank();
+          return { message: "Studio Pro: バンク位置をトラック 1〜8 に戻しました。" };
+        }
+        if (command.startsWith("track_")) {
+          if (!(track >= 1)) throw new ActionError("トラック番号（1 以上）を指定してください。");
+          const label = sp.strip(command.slice(6), track);
+          return { message: `Studio Pro: トラック ${track} を${label}。` };
+        }
+        if (command === "fader") {
+          if (track == null) throw new ActionError("フェーダーを動かすトラック番号（0=マスター）を指定してください。");
+          const v = db != null ? dbToFader(db) : value;
+          if (v == null) throw new ActionError("value（0〜1）か db を指定してください。");
+          sp.fader(track === 0 ? "master" : track, v);
+          return { message: `Studio Pro: ${track === 0 ? "マスター" : `トラック ${track}`} のフェーダーを ${db != null ? `${db}dB 付近` : `${Math.round(v * 100)}%`} にしました。` };
+        }
+        const label = sp.press(command);
+        return { message: `Studio Pro: ${label}` };
+      } catch (e) {
+        if (e instanceof ActionError) throw e;
+        throw new ActionError(e.message);
+      }
     },
   },
 ];
@@ -589,6 +749,17 @@ function guessDrumStyle(mood = "") {
   if (/ジャズ|ブルース/.test(mood)) return "shuffle";
   if (/壮大|エピック/.test(mood)) return "halftime";
   return "basic";
+}
+
+const PART_JA = { drums: "ドラム", bass: "ベース", comping: "バッキング", melody: "メロディ" };
+
+function requireLibrary(ctx, query, mustHave = true) {
+  if (!ctx.library) throw new ActionError("この環境では参考曲ライブラリを使えません。");
+  const all = ctx.library.songs;
+  if (mustHave && !all.length) throw new ActionError("参考曲ライブラリが空です。「⋯ → 参考曲ライブラリ」からプロの曲などの MIDI ファイルを読み込んでください。");
+  const hit = ctx.library.find(query);
+  if (mustHave && query && !hit.length) throw new ActionError(`「${query}」に当てはまる参考曲がありません（${all.map((x) => x.name).slice(0, 5).join("、")} など）。`);
+  return hit;
 }
 
 export function findAction(name) {

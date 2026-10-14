@@ -6,7 +6,9 @@ import { Store, createDefaultProject, createProject, createTrack, normalizeNotes
 import { runAction, findAction } from "./actions.js";
 import { parseCommand, HELP_TEXT } from "./operator.js";
 import { analyzeProject } from "./assistant.js";
-import { projectToMidi } from "./midi.js";
+import { projectToMidi, parseMidi } from "./midi.js";
+import { Library, analyzeSong, describeSong, classifyParts, roleJa } from "./library.js";
+import { StudioProRemote } from "./studiopro.js";
 import { Engine } from "./engine.js";
 import { ClaudeOperator, MODELS } from "./claude.js";
 
@@ -36,7 +38,9 @@ function isValidProject(p) {
 
 const saved = loadJSON(PROJECT_KEY);
 const store = new Store(isValidProject(saved) ? saved : createDefaultProject());
-const settings = { apiKey: "", model: MODELS[0].id, useClaude: false, midiOutId: "", internalSynth: true, ...(loadJSON(SETTINGS_KEY) || {}) };
+const settings = { apiKey: "", model: MODELS[0].id, useClaude: false, midiOutId: "", studioOutId: "", internalSynth: true, notes: "", ...(loadJSON(SETTINGS_KEY) || {}) };
+const library = new Library();
+const studio = new StudioProRemote();
 
 const engine = new Engine(() => store.project);
 engine.useInternalSynth = settings.internalSynth;
@@ -49,6 +53,8 @@ const ctx = {
     isPlaying: () => engine.isPlaying(),
   },
   exportMidi,
+  library,
+  studio,
 };
 
 let selectedTrackId = store.project.tracks[0]?.id ?? null;
@@ -142,6 +148,15 @@ $("menu").addEventListener("click", (e) => {
     $("load-file").click();
   } else if (item === "settings") {
     openSettings();
+  } else if (item === "import-midi") {
+    $("import-midi-file").click();
+  } else if (item === "export-track") {
+    const t = currentTrack();
+    if (t) report(runAction(ctx, "export_midi", { track: t.id }), true);
+  } else if (item === "library") {
+    openLibrary();
+  } else if (item === "remote") {
+    openRemote();
   }
 });
 $("load-file").addEventListener("change", async (e) => {
@@ -174,9 +189,10 @@ function download(blob, name) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function exportMidi() {
-  const name = `${safeName(store.project.title)}.mid`;
-  download(new Blob([projectToMidi(store.project)], { type: "audio/midi" }), name);
+function exportMidi(trackIds) {
+  const part = trackIds?.length === 1 ? store.project.tracks.find((t) => t.id === trackIds[0]) : null;
+  const name = `${safeName(store.project.title)}${part ? "_" + safeName(part.name) : ""}.mid`;
+  download(new Blob([projectToMidi(store.project, { trackIds })], { type: "audio/midi" }), name);
   return name;
 }
 
@@ -632,7 +648,7 @@ async function handleInput(text, { forceRules = false } = {}) {
   busy = true;
   const pending = addMessage("bot pending", "考えています…");
   try {
-    claude ??= new ClaudeOperator({ apiKey: settings.apiKey, model: settings.model, ctx });
+    claude ??= new ClaudeOperator({ apiKey: settings.apiKey, model: settings.model, ctx, notes: settings.notes });
     await claude.send(text, {
       onText: (t) => chat.insertBefore(makeMsg("bot", t), pending),
       onTool: (name, input, r) => chat.insertBefore(makeMsg(r.ok ? "tool" : "tool err", `🎛 ${findAction(name)?.title ?? name}: ${r.message.split("\n")[0]}`), pending),
@@ -676,7 +692,10 @@ function renderIdeas() {
     { label: "進行のアイデア", command: "コード進行の提案" },
     { label: "分析して", command: "分析して" },
   ];
-  box.replaceChildren(...[...ideas.slice(0, 4), ...fixed].map(chipButton));
+  if (library.songs.length) {
+    fixed.unshift({ label: "参考曲の型でアレンジ", command: "参考曲の型でアレンジ" }, { label: "参考曲から進行", command: "参考曲から進行" });
+  }
+  box.replaceChildren(...[...ideas.slice(0, 3), ...fixed].map(chipButton));
 }
 
 function renderModeBadge() {
@@ -695,29 +714,36 @@ async function openSettings() {
   modelSel.value = settings.model;
   $("use-claude").checked = settings.useClaude;
   $("internal-synth").checked = settings.internalSynth;
+  $("notes").value = settings.notes;
   await refreshMidiOutputs();
   $("settings").showModal();
 }
 
 let midiAccess = null;
 async function refreshMidiOutputs() {
-  const sel = $("midi-out");
-  sel.replaceChildren(new Option("（なし）", ""));
+  const pairs = [
+    [$("midi-out"), settings.midiOutId],
+    [$("studio-out"), settings.studioOutId],
+  ];
+  for (const [sel] of pairs) sel.replaceChildren(new Option("（なし）", ""));
   if (!navigator.requestMIDIAccess) {
-    sel.append(new Option("このブラウザは Web MIDI 非対応です", "", false, false));
-    sel.disabled = true;
+    for (const [sel] of pairs) {
+      sel.append(new Option("このブラウザは Web MIDI 非対応です（Chrome / Edge を使ってください）", ""));
+      sel.disabled = true;
+    }
     return;
   }
   try {
     midiAccess ??= await navigator.requestMIDIAccess();
-    for (const out of midiAccess.outputs.values()) sel.append(new Option(out.name, out.id, false, out.id === settings.midiOutId));
+    for (const [sel, current] of pairs) for (const out of midiAccess.outputs.values()) sel.append(new Option(out.name, out.id, false, out.id === current));
   } catch {
-    sel.append(new Option("MIDI へのアクセスが許可されませんでした", ""));
+    for (const [sel] of pairs) sel.append(new Option("MIDI へのアクセスが許可されませんでした", ""));
   }
 }
 
 function applyMidiOut() {
   engine.midiOut = (settings.midiOutId && midiAccess?.outputs.get(settings.midiOutId)) || null;
+  studio.setOutput((settings.studioOutId && midiAccess?.outputs.get(settings.studioOutId)) || null);
 }
 
 $("settings").addEventListener("close", () => {
@@ -728,15 +754,23 @@ $("settings").addEventListener("close", () => {
   settings.useClaude = $("use-claude").checked && !!settings.apiKey;
   settings.internalSynth = $("internal-synth").checked;
   settings.midiOutId = $("midi-out").value;
+  settings.studioOutId = $("studio-out").value;
+  if (settings.studioOutId && settings.studioOutId === settings.midiOutId) {
+    // 同じポートに音とコントロール信号を混ぜると Studio Pro が誤動作するので片方を外す
+    settings.midiOutId = "";
+    addMessage("bot", "「音を送る出力先」と「Mackie Control 用ポート」が同じだったため、音の出力をオフにしました。別々の仮想ポートを使ってください。");
+  }
+  const prevNotes = settings.notes;
+  settings.notes = $("notes").value;
   engine.useInternalSynth = settings.internalSynth;
   applyMidiOut();
-  if (prevKey !== settings.apiKey || prevModel !== settings.model) claude = null;
+  if (prevKey !== settings.apiKey || prevModel !== settings.model || prevNotes !== settings.notes) claude = null;
   saveJSON(SETTINGS_KEY, settings);
   renderModeBadge();
 });
 
 // 前回の MIDI 出力を復元（権限がある場合のみ）
-if (settings.midiOutId && navigator.requestMIDIAccess) {
+if ((settings.midiOutId || settings.studioOutId) && navigator.requestMIDIAccess) {
   navigator
     .requestMIDIAccess()
     .then((a) => {
@@ -745,6 +779,174 @@ if (settings.midiOutId && navigator.requestMIDIAccess) {
     })
     .catch(() => {});
 }
+
+// ---------- MIDI ファイルを開いて編集 ----------
+const ROLE_INSTRUMENT = { drums: "drums", bass: "bass", melody: "lead", chords: "piano", other: "pluck" };
+
+$("import-midi-file").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    const midi = parseMidi(await file.arrayBuffer());
+    const song = analyzeSong(midi, file.name.replace(/\.midi?$/i, ""));
+    const parts = classifyParts(midi.tracks);
+    const p = createProject();
+    p.title = song.name;
+    p.bpm = Math.max(30, Math.min(300, midi.bpm));
+    p.key = song.key;
+    p.bars = Math.min(256, song.bars);
+    p.loop = { enabled: false, startBar: 0, endBar: p.bars };
+    p.chords = song.chords.map((c) => ({ bar: Math.floor(c.start / BEATS_PER_BAR), beat: c.start % BEATS_PER_BAR, length: c.length, symbol: chordName(song.key, c) }));
+    for (const part of parts) {
+      const t = createTrack({ name: part.name || roleJa(part.role), instrument: ROLE_INSTRUMENT[part.role] });
+      t.notes = normalizeNotes(part.notes.filter((n) => n.start < p.bars * BEATS_PER_BAR));
+      p.tracks.push(t);
+    }
+    engine.stop();
+    store.replace(p);
+    selectedTrackId = p.tracks[0]?.id;
+    renderRoll(true);
+    addMessage("bot", `「${song.name}」を開きました（${p.tracks.length} トラック, ${describeSong(song).key}, ${p.bpm}BPM）。コード表示は自動検出なので目安です。`);
+  } catch (err) {
+    addMessage("tool err", `MIDI を読み込めませんでした: ${err.message}`);
+  }
+});
+
+function chordName(key, c) {
+  return pcName((key.root + c.interval) % 12, key) + c.quality;
+}
+
+// ---------- 参考曲ライブラリ ----------
+const libDialog = $("library");
+
+function openLibrary() {
+  renderLibrary();
+  libDialog.showModal();
+}
+$("open-library").addEventListener("click", openLibrary);
+for (const b of document.querySelectorAll("[data-close]")) b.addEventListener("click", () => b.closest("dialog").close());
+
+function renderLibrary() {
+  renderIdeas();
+  $("lib-count").textContent = `${library.songs.length} 曲`;
+  $("lib-list").replaceChildren(
+    ...library.songs.map((song) => {
+      const d = describeSong(song);
+      const li = document.createElement("li");
+      li.className = "lib-item";
+      const row = document.createElement("div");
+      row.className = "row";
+      const name = document.createElement("strong");
+      name.textContent = song.name;
+      const use = document.createElement("button");
+      use.className = "btn small";
+      use.textContent = "この曲の型でアレンジ";
+      use.addEventListener("click", () => {
+        libDialog.close();
+        addMessage("user", `参考曲「${song.name}」の型でアレンジ`);
+        if (!store.project.chords.length) report(runAction(ctx, "library_progression", { source: song.name }));
+        report(runAction(ctx, "library_arrange", { source: song.name, parts: ["drums", "bass", "comping", "melody"] }));
+      });
+      const del = document.createElement("button");
+      del.className = "icon-btn";
+      del.textContent = "✕";
+      del.title = "ライブラリから削除";
+      del.addEventListener("click", () => {
+        if (confirm(`「${song.name}」をライブラリから削除しますか？`)) {
+          library.remove(song.id);
+          renderLibrary();
+        }
+      });
+      row.append(name, use, del);
+      const meta = document.createElement("div");
+      meta.className = "lib-meta";
+      meta.textContent = `${d.key} / ${song.bpm}BPM / ${song.bars}小節 / 進行 ${d.progression}\n${d.counts}${d.roles ? " / " + d.roles : ""}`;
+      meta.style.whiteSpace = "pre-wrap";
+      const tags = document.createElement("input");
+      tags.placeholder = "タグ（カンマ区切り）例: ファンク, 90s";
+      tags.value = song.tags.join(", ");
+      tags.addEventListener("change", () => library.setTags(song.id, tags.value.split(/[,、]/).map((x) => x.trim()).filter(Boolean)));
+      li.append(row, meta, tags);
+      return li;
+    }),
+  );
+}
+
+async function addLibraryFiles(files) {
+  const added = [];
+  const failed = [];
+  for (const file of files) {
+    try {
+      const song = analyzeSong(parseMidi(await file.arrayBuffer()), file.name.replace(/\.midi?$/i, ""));
+      added.push(song.name);
+      if (!library.add(song)) failed.push(`${song.name}（保存容量が足りません。ライブラリを .json に保存して整理してください）`);
+    } catch (err) {
+      failed.push(`${file.name}: ${err.message}`);
+    }
+  }
+  renderLibrary();
+  if (added.length) addMessage("bot", `参考曲を ${added.length} 曲読み込みました: ${added.join("、")}`, [{ label: "参考曲の型でアレンジ", action: "library_arrange", input: {} }, { label: "参考曲から進行", action: "library_progression", input: {} }]);
+  if (failed.length) addMessage("tool err", `読み込めなかったもの:\n${failed.join("\n")}`);
+}
+
+$("library-files").addEventListener("change", (e) => {
+  addLibraryFiles([...e.target.files]);
+  e.target.value = "";
+});
+const drop = $("drop");
+drop.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  drop.classList.add("over");
+});
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", (e) => {
+  e.preventDefault();
+  drop.classList.remove("over");
+  addLibraryFiles([...e.dataTransfer.files].filter((f) => /\.midi?$/i.test(f.name)));
+});
+$("lib-export").addEventListener("click", () => download(new Blob([library.exportJSON()], { type: "application/json" }), "daruma-library.json"));
+$("lib-import").addEventListener("click", () => $("lib-import-file").click());
+$("lib-import-file").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    const n = library.importJSON(await file.text());
+    renderLibrary();
+    addMessage("bot", `ライブラリに ${n} 曲追加しました。`);
+  } catch (err) {
+    addMessage("tool err", `ライブラリを読み込めませんでした: ${err.message}`);
+  }
+});
+
+// ---------- Studio Pro リモート ----------
+async function openRemote() {
+  if (settings.studioOutId && !midiAccess && navigator.requestMIDIAccess) {
+    try {
+      midiAccess = await navigator.requestMIDIAccess();
+      applyMidiOut();
+    } catch {
+      /* 権限なし */
+    }
+  }
+  $("remote-status").textContent = studio.connected
+    ? `接続先: ${studio.output.name}（Mackie Control）。表示中のバンク: トラック ${studio.bank * 8 + 1}〜${studio.bank * 8 + 8}（推定）`
+    : "Mackie Control 用ポートが未設定です。「⋯ → 設定」で選んでください。";
+  $("remote").showModal();
+}
+$("open-remote").addEventListener("click", openRemote);
+
+function spRun(input) {
+  const r = runAction(ctx, "studio_pro", input);
+  if (!r.ok) addMessage("tool err", r.message);
+  $("remote-status").textContent = r.ok ? `${r.message}（バンク: トラック ${studio.bank * 8 + 1}〜${studio.bank * 8 + 8}）` : r.message;
+}
+for (const b of document.querySelectorAll("[data-sp]")) b.addEventListener("click", () => spRun({ command: b.dataset.sp }));
+for (const b of document.querySelectorAll("[data-sp-track]")) b.addEventListener("click", () => spRun({ command: b.dataset.spTrack, track: Number($("sp-track").value) }));
+$("sp-fader").addEventListener("input", (e) => ($("sp-db").textContent = e.target.value));
+$("sp-fader").addEventListener("change", (e) => spRun({ command: "fader", track: Number($("sp-track").value), db: Number(e.target.value) }));
+$("sp-bank-reset").addEventListener("click", () => spRun({ command: "bank_reset" }));
 
 // ---------- キーボードショートカット ----------
 document.addEventListener("keydown", (e) => {

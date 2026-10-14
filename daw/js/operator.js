@@ -71,11 +71,13 @@ export function parseSentence(raw) {
   const t = text.toLowerCase();
 
   if (/^(help|ヘルプ|使い方|何ができる|なにができる)/i.test(t)) return { help: true };
+  if (/(スタジオ\s*プロ|studio\s*pro|スタプロ|本体のdaw|daw側)/i.test(t)) return parseStudioPro(text);
+  if (/(参考曲|ライブラリ|リファレンス|プロの曲)/.test(text)) return parseLibrary(text);
   if (/元に戻|取り消|アンドゥ|^undo$/i.test(t)) return [{ action: "undo", input: {} }];
   if (/やり直|リドゥ|^redo$/i.test(t)) return [{ action: "redo", input: {} }];
   if (/(停止|ストップ|止め|^stop$)/i.test(t)) return [{ action: "transport", input: { command: "stop" } }];
   if (/(再生|プレイ|聴かせ|聞かせ|鳴らして|^play$)/i.test(t) && !/(作|生成)/.test(t)) return [{ action: "transport", input: { command: "play" } }];
-  if (/(midi|ミディ).*(書き出|エクスポート|保存|出力|export)|export/i.test(t)) return [{ action: "export_midi", input: {} }];
+  if (/(midi|ミディ).*(書き出|エクスポート|保存|出力|export)|export/i.test(t)) return [{ action: "export_midi", input: /だけ|のみ/.test(text) ? { track: trackRef(text) } : {} }];
   if (/(分析|アドバイス|チェック|診断|どう(思う|かな)|analy[sz]e)/i.test(t)) return [{ action: "analyze", input: {} }];
 
   // テンポ
@@ -185,6 +187,65 @@ export function parseSentence(raw) {
   return null;
 }
 
+const PART_WORDS = [
+  [/ドラム|リズム|グルーヴ|ビート/, "drums"],
+  [/ベース/, "bass"],
+  [/バッキング|伴奏|コード|ピアノ|ギター/, "comping"],
+  [/メロ|旋律/, "melody"],
+];
+
+function quoted(text) {
+  return /[「『"]([^」』"]+)[」』"]/.exec(text)?.[1];
+}
+
+function parseLibrary(text) {
+  const source = quoted(text);
+  if (/(一覧|リスト|何が入|なにが入|見せて|表示)/.test(text)) return [{ action: "library_list", input: { query: source } }];
+  if (/(進行|コード進行)/.test(text) || (/コード/.test(text) && !/バッキング|伴奏/.test(text) && !/アレンジ/.test(text))) {
+    const method = /(新しい|組み合わせ|学習|マルコフ|オリジナル|混ぜ)/.test(text) ? "markov" : "loop";
+    return [{ action: "library_progression", input: { source, method, style: findWord(CHORD_STYLE_WORDS, text) ?? undefined } }];
+  }
+  let parts = PART_WORDS.filter(([re]) => re.test(text)).map(([, p]) => p);
+  if (/(全部|まるごと|フル|すべて)/.test(text)) parts = ["drums", "bass", "comping", "melody"];
+  else if (!parts.length) parts = ["drums", "bass", "comping"];
+  return [{ action: "library_arrange", input: { source, parts } }];
+}
+
+const SP_BUTTON_WORDS = [
+  [/録音待機|アーム/, null], // トラック操作で処理
+  [/録音|レコーディング|rec/i, "record"],
+  [/停止|ストップ|止め/, "stop"],
+  [/再生|プレイ/, "play"],
+  [/巻き戻|頭に戻/, "rewind"],
+  [/早送り/, "forward"],
+  [/ループ|サイクル/, "cycle"],
+  [/メトロノーム|クリック/, "click"],
+  [/マーカー/, "marker"],
+  [/元に戻|アンドゥ|undo/i, "undo"],
+  [/保存|セーブ/, "save"],
+  [/バンク.*(右|次|進)/, "bank_right"],
+  [/バンク.*(左|前|戻)/, "bank_left"],
+];
+
+function parseStudioPro(text) {
+  let m = /(?:トラック|tr)\s*(\d+)\s*(?:を|の)?\s*(選択|ミュート|ソロ|録音待機|アーム)/i.exec(text);
+  if (m) {
+    const cmd = { 選択: "track_select", ミュート: "track_mute", ソロ: "track_solo", 録音待機: "track_arm", アーム: "track_arm" }[m[2]];
+    return [{ action: "studio_pro", input: { command: cmd, track: Number(m[1]) } }];
+  }
+  m = /(マスター|(?:トラック|tr)\s*(\d+))\s*(?:の)?\s*(?:音量|フェーダー|ボリューム)\s*(?:を)?\s*(-?\d+(?:\.\d+)?)\s*(db|%|％)?/i.exec(text);
+  if (m) {
+    const track = m[1] === "マスター" ? 0 : Number(m[2]);
+    const num = Number(m[3]);
+    const unit = (m[4] || "").toLowerCase();
+    return [{ action: "studio_pro", input: unit === "db" || num < 0 ? { command: "fader", track, db: num } : { command: "fader", track, value: Math.min(100, num) / 100 } }];
+  }
+  if (/バンク.*(リセット|最初|先頭)/.test(text)) return [{ action: "studio_pro", input: { command: "bank_reset" } }];
+  const cmd = findWord(SP_BUTTON_WORDS, text);
+  if (cmd) return [{ action: "studio_pro", input: { command: cmd } }];
+  return null;
+}
+
 function perChord(text) {
   if (/2拍|二拍|半小節/.test(text)) return 0.5;
   if (/2小節ずつ|2小節ごと/.test(text)) return 2;
@@ -240,7 +301,13 @@ export const HELP_TEXT = `話しかけるように指示してください。複
 ■ 編集
 ・メロディを+2移調 ／ ベースを1オクターブ下げて ／ メロディをクオンタイズ ／ ドラムをミュート ／ ベースの音量70
 ・メロディを消して ／ 元に戻す ／ やり直し
+■ 参考曲ライブラリ（「⋯ → 参考曲ライブラリ」で MIDI を読み込んでから）
+・参考曲の一覧 ／ 参考曲から進行 ／ 参考曲を組み合わせて新しい進行
+・参考曲の型でアレンジ ／ 参考曲「曲名」のドラムとベースで ／ 参考曲のメロディで
+■ Studio Pro の操作（設定で Mackie Control 用のポートを選んでから）
+・スタジオプロで再生 ／ 停止 ／ 録音 ／ ループ ／ クリック ／ マーカー ／ 保存
+・スタジオプロのトラック3をミュート（ソロ／選択／録音待機）／ スタジオプロのトラック2の音量を-6dB
 ■ その他
-・再生 ／ 停止 ／ 3〜4小節をループ ／ 分析して ／ MIDI書き出し
+・再生 ／ 停止 ／ 3〜4小節をループ ／ 分析して ／ MIDI書き出し ／ ベースだけMIDI書き出し
 
 Claude API キーを設定すると、もっと自由な言い方や細かい作曲の相談もできます。`;

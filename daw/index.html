@@ -32,15 +32,22 @@
       <div class="actions">
         <button id="undo" class="btn" title="元に戻す（Ctrl+Z）">↶</button>
         <button id="redo" class="btn" title="やり直し（Ctrl+Shift+Z）">↷</button>
+        <button id="open-remote" class="btn" title="Studio Pro リモート（Mackie Control）">Studio Pro</button>
+        <button id="open-library" class="btn">参考曲</button>
         <button id="export-midi" class="btn">MIDI 書き出し</button>
         <button id="menu-btn" class="btn" aria-haspopup="true">⋯</button>
         <div id="menu" class="menu" hidden>
           <button data-menu="new">新規プロジェクト</button>
           <button data-menu="save">プロジェクトを保存（.json）</button>
           <button data-menu="load">プロジェクトを開く…</button>
+          <button data-menu="import-midi">MIDI ファイルを開いて編集…</button>
+          <button data-menu="export-track">選択中のトラックだけ MIDI 書き出し</button>
+          <button data-menu="library">参考曲ライブラリ</button>
+          <button data-menu="remote">Studio Pro リモート</button>
           <button data-menu="settings">設定（Claude / MIDI 出力）</button>
         </div>
         <input id="load-file" type="file" accept="application/json,.json" hidden />
+        <input id="import-midi-file" type="file" accept=".mid,.midi,audio/midi" hidden />
       </div>
     </header>
 
@@ -112,9 +119,21 @@
           <label class="stack">API キー <input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-..." /></label>
           <label class="stack">モデル <select id="model"></select></label>
           <label class="field check"><input id="use-claude" type="checkbox" /> Claude を使う（オフならルールベースのオペレーター）</label>
+          <label class="stack">Studio Pro の参考資料（任意）
+            <textarea id="notes" rows="5" placeholder="Studio Pro のマニュアルの抜粋、自分のショートカット設定、よく使う手順のメモなどを貼ると、操作の質問にこれを優先して答えます。"></textarea>
+          </label>
         </fieldset>
         <fieldset>
-          <legend>MIDI 出力（外部 DAW を鳴らす）</legend>
+          <legend>Studio Pro リモート（Mackie Control）</legend>
+          <p class="muted">
+            仮想 MIDI ポートを 1 つ選びます。Studio Pro 側では「Studio Pro → オプション → 外部デバイス → 追加」で
+            Mackie Control を追加し、受信元／送信先にこのポートを指定してください（メニュー名はバージョンにより異なることがあります）。
+            下の「音を送る出力先」とは別のポートにしてください。
+          </p>
+          <label class="stack">Mackie Control 用ポート <select id="studio-out"><option value="">（なし）</option></select></label>
+        </fieldset>
+        <fieldset>
+          <legend>音を送る出力先（外部 DAW の音源を鳴らす）</legend>
           <p class="muted">
             IAC ドライバ（Mac）や loopMIDI（Windows）などの仮想 MIDI ポートを選ぶと、再生中のノートを
             Logic / Ableton Live / Cubase などに送れます。ドラムは ch10、その他は ch1 から順に割り当てます。
@@ -126,6 +145,69 @@
           <button class="btn primary" value="ok">閉じる</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="library" class="dialog wide">
+      <div class="dialog-head">
+        <h2>参考曲ライブラリ</h2>
+        <button class="icon-btn" data-close aria-label="閉じる">✕</button>
+      </div>
+      <p class="muted">
+        プロの曲などの MIDI ファイルを読み込むと、キー・コード進行・ドラムのグルーヴ・ベースの動き・バッキングのリズム・
+        メロディのリズムと輪郭を抜き出して貯めます。オペレーターに「参考曲の型でアレンジ」「参考曲から進行」などと頼むと、
+        今の曲のキーとコードに当てはめて使います。タグ（例: ファンク, 90s, バラード）を付けると「参考曲『ファンク』のドラムで」のように絞り込めます。
+        ファイルはこのブラウザの中だけで解析・保存し、外部には送りません。
+      </p>
+      <label id="drop" class="drop">
+        <input id="library-files" type="file" accept=".mid,.midi,audio/midi" multiple hidden />
+        ここに MIDI ファイルをドロップ（複数可）／クリックして選択
+      </label>
+      <div class="lib-tools">
+        <span id="lib-count" class="muted"></span>
+        <button id="lib-export" class="btn small">ライブラリを保存（.json）</button>
+        <button id="lib-import" class="btn small">ライブラリを読み込む…</button>
+        <input id="lib-import-file" type="file" accept="application/json,.json" hidden />
+      </div>
+      <ul id="lib-list" class="lib-list"></ul>
+    </dialog>
+
+    <dialog id="remote" class="dialog">
+      <div class="dialog-head">
+        <h2>Studio Pro リモート</h2>
+        <button class="icon-btn" data-close aria-label="閉じる">✕</button>
+      </div>
+      <p id="remote-status" class="muted"></p>
+      <div class="remote-grid" id="remote-transport">
+        <button class="btn" data-sp="rewind">⏪</button>
+        <button class="btn" data-sp="forward">⏩</button>
+        <button class="btn" data-sp="stop">■</button>
+        <button class="btn primary" data-sp="play">▶</button>
+        <button class="btn rec" data-sp="record">●</button>
+        <button class="btn" data-sp="cycle">ループ</button>
+        <button class="btn" data-sp="click">クリック</button>
+        <button class="btn" data-sp="marker">マーカー</button>
+        <button class="btn" data-sp="undo">元に戻す</button>
+        <button class="btn" data-sp="save">保存</button>
+      </div>
+      <fieldset>
+        <legend>トラック</legend>
+        <div class="remote-track">
+          <label class="field">番号 <input id="sp-track" type="number" min="1" value="1" /></label>
+          <button class="btn small" data-sp-track="track_select">選択</button>
+          <button class="btn small" data-sp-track="track_mute">M</button>
+          <button class="btn small" data-sp-track="track_solo">S</button>
+          <button class="btn small" data-sp-track="track_arm">●待機</button>
+        </div>
+        <label class="stack"><span>フェーダー（約 <span id="sp-db">0</span> dB）</span>
+          <input id="sp-fader" type="range" min="-60" max="6" step="0.5" value="0" />
+        </label>
+        <div class="remote-track">
+          <button class="btn small" data-sp="bank_left">◀ バンク</button>
+          <button class="btn small" data-sp="bank_right">バンク ▶</button>
+          <button class="btn small" id="sp-bank-reset">バンク位置をリセット</button>
+        </div>
+      </fieldset>
+      <p class="muted">チャットでも「スタジオプロで録音」「スタジオプロのトラック3をソロ」のように操作できます。</p>
     </dialog>
 
     <script type="module" src="js/app.js"></script>

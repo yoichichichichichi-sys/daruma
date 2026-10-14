@@ -223,3 +223,144 @@ test("Claude ツール定義はアクションと一致", () => {
     assert.ok(d.description.length > 5);
   }
 });
+
+// ---------------- 参考曲ライブラリ ----------------
+import { parseMidi } from "../js/midi.js";
+import { analyzeSong, detectChord, intervalToRoman, Library, learnedProgression } from "../js/library.js";
+import { StudioProRemote, buttonMessages, faderMessages, MCU_BUTTONS } from "../js/studiopro.js";
+
+function memoryStorage() {
+  const m = new Map();
+  return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)) };
+}
+
+/** 参考曲の代わりに、このアプリで作った曲を MIDI 経由で解析する */
+function referenceSong() {
+  const ctx = newCtx();
+  runAction(ctx, "set_key", { key: "Eb" });
+  runAction(ctx, "set_tempo", { bpm: 96 });
+  runAction(ctx, "write_chords", { chords: ["vi7", "IVmaj7", "V", "I"], repeat: 2, style: "pop" });
+  runAction(ctx, "generate_melody", { seed: 5 });
+  runAction(ctx, "generate_bass", { style: "synco" });
+  runAction(ctx, "generate_drums", { style: "hiphop" });
+  return analyzeSong(parseMidi(projectToMidi(ctx.store.project)), "参考A");
+}
+
+test("MIDI の読み書きが往復する", () => {
+  const ctx = newCtx();
+  runAction(ctx, "sketch", { mood: "明るい", bars: 4, bpm: 128 });
+  const p = ctx.store.project;
+  const midi = parseMidi(projectToMidi(p));
+  assert.equal(midi.bpm, 128);
+  assert.equal(midi.tracks.length, p.tracks.length);
+  for (const t of p.tracks) {
+    const back = midi.tracks.find((x) => x.name === t.name);
+    assert.ok(back, t.name);
+    assert.equal(back.notes.length, t.notes.length);
+    assert.equal(back.channel === 9, t.instrument === "drums");
+  }
+  // パート単位の書き出し
+  const one = parseMidi(projectToMidi(p, { trackIds: [p.tracks[2].id] }));
+  assert.equal(one.tracks.length, 1);
+  assert.equal(one.tracks[0].name, p.tracks[2].name);
+  assert.throws(() => parseMidi(new Uint8Array([1, 2, 3, 4])));
+});
+
+test("コード検出とディグリー表記", () => {
+  const notes = [48, 64, 67, 72].map((pitch) => ({ pitch, start: 0, duration: 4 })); // C E G C
+  assert.deepEqual(detectChord(notes, 0, 4) && [detectChord(notes, 0, 4).root, detectChord(notes, 0, 4).quality], [0, ""]);
+  const am7 = [45, 60, 64, 67].map((pitch) => ({ pitch, start: 0, duration: 4 }));
+  const d = detectChord(am7, 0, 4);
+  assert.deepEqual([d.root, d.quality], [9, "m7"]);
+  assert.equal(intervalToRoman(9, "m7"), "vi7");
+  assert.equal(intervalToRoman(10, ""), "bVII");
+  assert.equal(intervalToRoman(5, "maj7"), "IVmaj7");
+});
+
+test("参考曲の解析", () => {
+  const song = referenceSong();
+  assert.deepEqual(song.key, { root: 3, mode: "major" });
+  assert.equal(song.bpm, 96);
+  const roles = Object.fromEntries(song.parts.map((p) => [p.role, p.name]));
+  assert.equal(roles.drums, "ドラム");
+  assert.equal(roles.bass, "ベース");
+  assert.equal(roles.melody, "メロディ");
+  assert.equal(roles.chords, "コード");
+  assert.deepEqual(song.progressions[0].chords.map((c) => c.interval), [9, 5, 7, 0]);
+  assert.ok(song.grooves.length >= 1 && song.bassPatterns.length >= 1 && song.compPatterns.length >= 1 && song.melodyPatterns.length >= 1);
+});
+
+test("参考曲の型を別のキーに当てはめる", () => {
+  const song = referenceSong();
+  // 長調の曲 → 短調のプロジェクトでは平行調で読み替える（vi7 → Am のキーでは i7 = Am7）
+  const res = learnedProgression([song], { root: 9, mode: "minor" }, { bars: 4 });
+  assert.deepEqual(res.chords.map((c) => c.symbol), ["Am7", "Fmaj7", "G", "C"]);
+
+  const ctx = { ...newCtx(), library: new Library(memoryStorage()) };
+  assert.equal(runAction(ctx, "library_arrange", {}).ok, false, "空のライブラリ");
+  ctx.library.add(song);
+  ctx.library.setTags(song.id, ["ローファイ"]);
+  runAction(ctx, "set_key", { key: "G" });
+  let r = runAction(ctx, "library_progression", { source: "ローファイ", seed: 1 });
+  assert.ok(r.ok, r.message);
+  assert.deepEqual(ctx.store.project.chords.slice(0, 4).map((c) => c.symbol), ["Em7", "Cmaj7", "D", "G"]);
+  r = runAction(ctx, "library_arrange", { parts: ["drums", "bass", "comping", "melody"], seed: 2 });
+  assert.ok(r.ok, r.message);
+  const p = ctx.store.project;
+  const scale = [7, 9, 11, 0, 2, 4, 6];
+  const mel = findTrack(p, "メロディ").notes;
+  assert.ok(mel.length > 8);
+  assert.ok(mel.every((n) => scale.includes(n.pitch % 12)), "メロディは G メジャーのスケール内");
+  const bass = findTrack(p, "ベース").notes;
+  assert.ok(bass.length > 8 && bass.every((n) => n.pitch >= 28 && n.pitch <= 55));
+  assert.ok(findTrack(p, "ドラム").notes.length > 16);
+  assert.equal(runAction(ctx, "library_arrange", { source: "存在しない" }).ok, false);
+  assert.ok(runAction(ctx, "library_list", {}).message.includes("参考A"));
+
+  // 保存と復元
+  const json = ctx.library.exportJSON();
+  const lib2 = new Library(memoryStorage());
+  assert.equal(lib2.importJSON(json), 1);
+  assert.equal(lib2.importJSON(json), 0, "重複は追加しない");
+});
+
+test("Studio Pro リモート（Mackie Control）", () => {
+  const sent = [];
+  const sp = new StudioProRemote();
+  const ctx = { ...newCtx(), studio: sp };
+  assert.equal(runAction(ctx, "studio_pro", { command: "play" }).ok, false, "ポート未設定");
+  sp.setOutput({ name: "IAC", send: (m) => sent.push(m) });
+  assert.ok(runAction(ctx, "studio_pro", { command: "play" }).ok);
+  assert.deepEqual(sent.splice(0), buttonMessages(MCU_BUTTONS.play.note));
+  assert.deepEqual(buttonMessages(0x5e), [[0x90, 0x5e, 127], [0x90, 0x5e, 0]]);
+  // トラック 3 のミュート = ストリップ 3（0x10 + 2）
+  runAction(ctx, "studio_pro", { command: "track_mute", track: 3 });
+  assert.deepEqual(sent.splice(0), [[0x90, 0x12, 127], [0x90, 0x12, 0]]);
+  // トラック 10 → バンクを 1 つ右に送ってからストリップ 2
+  runAction(ctx, "studio_pro", { command: "track_solo", track: 10 });
+  assert.deepEqual(sent.splice(0), [[0x90, 0x2f, 127], [0x90, 0x2f, 0], [0x90, 0x09, 127], [0x90, 0x09, 0]]);
+  // トラック 1 に戻る → バンク左
+  runAction(ctx, "studio_pro", { command: "track_select", track: 1 });
+  assert.deepEqual(sent.splice(0), [[0x90, 0x2e, 127], [0x90, 0x2e, 0], [0x90, 0x18, 127], [0x90, 0x18, 0]]);
+  // フェーダー: タッチ → ピッチベンド → リリース
+  assert.deepEqual(faderMessages(0, 1), [[0x90, 0x68, 127], [0xe0, 0x7f, 0x7f], [0x90, 0x68, 0]]);
+  runAction(ctx, "studio_pro", { command: "fader", track: 0, value: 0.5 });
+  assert.deepEqual(sent.splice(0)[1], [0xe8, 0x00, 0x40]);
+  assert.equal(runAction(ctx, "studio_pro", { command: "track_mute" }).ok, false);
+});
+
+test("参考曲・Studio Pro の日本語コマンド", () => {
+  const steps = (text) => parseCommand(text).steps.map((s) => [s.action, s.input]);
+  assert.deepEqual(steps("スタジオプロで再生")[0], ["studio_pro", { command: "play" }]);
+  assert.deepEqual(steps("Studio Proで録音して")[0], ["studio_pro", { command: "record" }]);
+  assert.deepEqual(steps("スタジオプロのトラック3をミュート")[0], ["studio_pro", { command: "track_mute", track: 3 }]);
+  assert.deepEqual(steps("スタジオプロのトラック2を録音待機")[0], ["studio_pro", { command: "track_arm", track: 2 }]);
+  assert.deepEqual(steps("スタジオプロのトラック2の音量を-6dB")[0], ["studio_pro", { command: "fader", track: 2, db: -6 }]);
+  assert.deepEqual(steps("スタジオプロのマスターの音量を80%")[0], ["studio_pro", { command: "fader", track: 0, value: 0.8 }]);
+  assert.deepEqual(steps("参考曲の一覧")[0], ["library_list", { query: undefined }]);
+  assert.equal(steps("参考曲から進行")[0][1].method, "loop");
+  assert.equal(steps("参考曲を組み合わせて新しい進行")[0][1].method, "markov");
+  assert.deepEqual(steps("参考曲「ファンク」のドラムとベースで")[0], ["library_arrange", { source: "ファンク", parts: ["drums", "bass"] }]);
+  assert.deepEqual(steps("参考曲の型でアレンジ")[0][1].parts, ["drums", "bass", "comping"]);
+  assert.deepEqual(steps("ベースだけMIDI書き出し")[0], ["export_midi", { track: "ベース" }]);
+});
