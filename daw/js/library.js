@@ -10,10 +10,115 @@ import { sortChords, chordAt, voiceChord, DRUM } from "./generate.js";
 
 const NAME_HINTS = [
   [/bass|ベース|ba\b/i, "bass"],
-  [/drum|ドラム|kit|perc|リズム/i, "drums"],
+  [/drum|ドラム|kit|perc|リズム|kick|snare|hat/i, "drums"],
   [/vocal|vox|melody|lead|メロ|歌|ボーカル|主旋律|sax|trumpet|flute|violin 1/i, "melody"],
-  [/piano|key|pad|chord|organ|ep\b|rhodes|guitar|gtr|ピアノ|コード|ギター|ストリングス|strings|synth/i, "chords"],
+  // ステム分離の「その他」（ギター・鍵盤などの伴奏）はコード扱い
+  [/piano|key|pad|chord|organ|ep\b|rhodes|guitar|gtr|ピアノ|コード|ギター|ストリングス|strings|synth|other|その他|inst/i, "chords"],
 ];
+
+// ---------------- ステム別 MIDI のまとめ・クリーンアップ ----------------
+
+const STEM_WORD = /(drums?|bass|vocals?|vox|other|piano|guitars?|gtr|keys|synth|strings|ドラム|ベース|ボーカル|歌|ギター|ピアノ|その他)/i;
+
+/** ファイル名からステムの種類（drums 等の語）を取り出す。無ければ null */
+export function stemLabel(fileName) {
+  return STEM_WORD.exec(fileName.replace(/\.midi?$/i, ""))?.[1] ?? null;
+}
+
+/**
+ * ステム別に書き出した MIDI（例: 曲A_drums.mid, 曲A_bass.mid）を曲ごとにまとめる。
+ * ステムの語を含まないファイルは 1 ファイル = 1 曲。
+ * @param {string[]} fileNames
+ * @returns {{name:string, indexes:number[]}[]}
+ */
+export function groupStemFiles(fileNames) {
+  const groups = new Map();
+  const out = [];
+  fileNames.forEach((file, i) => {
+    const base = file.replace(/\.midi?$/i, "");
+    if (!stemLabel(base)) {
+      out.push({ name: base, indexes: [i] });
+      return;
+    }
+    const song = base
+      .replace(STEM_WORD, "")
+      .replace(/stems?|ステム|midi/gi, "")
+      .replace(/[\s_\-.()[\]【】（）]+/g, " ")
+      .trim();
+    const k = song.toLowerCase() || "(stems)";
+    if (!groups.has(k)) {
+      const g = { name: song || "ステム", indexes: [] };
+      groups.set(k, g);
+      out.push(g);
+    }
+    groups.get(k).indexes.push(i);
+  });
+  return out;
+}
+
+/**
+ * 複数の MIDI（ステム別ファイル）を 1 曲分にまとめる。トラック名にステム名を付けてパート判定に使う
+ * @param {{fileName:string, midi:ReturnType<import('./midi.js').parseMidi>}[]} files
+ */
+export function mergeMidis(files, name = "") {
+  const withTempo = files.find((f) => f.midi.tempoFound);
+  const tracks = files.flatMap(({ fileName, midi }) => {
+    const label = stemLabel(fileName) ?? fileName.replace(/\.midi?$/i, "");
+    return midi.tracks.map((t) => ({ ...t, name: midi.tracks.length === 1 ? label : `${label} ${t.name}` }));
+  });
+  const first = (withTempo ?? files[0]).midi;
+  return { ppq: first.ppq, bpm: first.bpm, tempoFound: !!withTempo, timeSig: first.timeSig, name, tracks };
+}
+
+/**
+ * オーディオから変換した MIDI に多い「細切れ・ゴースト・重なり」を整える。
+ * - ごく短い音・ごく弱い音を捨てる
+ * - ベース・メロディは同じ音高の細切れをつなぎ、同時に鳴る音は 1 音に（ベースは最低音、メロディは最高音）
+ * - ドラムの音高が GM 配置でなければ、低い音 = キック、高い音 = ハット…と推定して割り当て直す
+ * @returns {{removed:number, merged:number, drumsRemapped:boolean}}
+ */
+export function cleanPart(part) {
+  const before = part.notes.length;
+  let notes = part.notes.filter((n) => n.velocity >= 12 && (part.role === "drums" || n.duration >= 1 / 24));
+  let merged = 0;
+  let drumsRemapped = false;
+  if (part.role === "bass" || part.role === "melody") {
+    notes = [...notes].sort((a, b) => a.start - b.start || (part.role === "bass" ? a.pitch - b.pitch : b.pitch - a.pitch));
+    const mono = [];
+    for (const n of notes) {
+      const last = mono[mono.length - 1];
+      if (last && Math.abs(n.start - last.start) < 0.08) continue; // 同時発音 → 先頭（最低音/最高音）だけ残す
+      // 細切れをつなぐ。隙間がほぼ無いものだけ（8 分の連打などの意図的な同音連打は残す）
+      if (last && last.pitch === n.pitch && n.start - (last.start + last.duration) < 0.03) {
+        last.duration = n.start + n.duration - last.start;
+        merged++;
+        continue;
+      }
+      if (last && last.start + last.duration > n.start) last.duration = Math.max(0.05, n.start - last.start);
+      mono.push({ ...n });
+    }
+    notes = mono;
+  }
+  if (part.role === "drums" && notes.length) {
+    const known = notes.filter((n) => drumRole(n.pitch)).length;
+    if (known / notes.length < 0.6) {
+      const counts = new Map();
+      for (const n of notes) counts.set(n.pitch, (counts.get(n.pitch) || 0) + 1);
+      const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([p]) => p);
+      const byPitch = [...top].sort((a, b) => a - b);
+      const map = new Map();
+      map.set(byPitch[0], DRUM.kick);
+      if (byPitch.length > 1) map.set(byPitch[byPitch.length - 1], DRUM.hatClosed);
+      const middle = top.filter((p) => !map.has(p));
+      if (middle.length) map.set(middle[0], DRUM.snare); // 中音域で一番多いもの = スネア
+      for (const p of middle.slice(1)) map.set(p, DRUM.tomLow);
+      notes = notes.filter((n) => map.has(n.pitch)).map((n) => ({ ...n, pitch: map.get(n.pitch) }));
+      drumsRemapped = true;
+    }
+  }
+  part.notes = notes;
+  return { removed: before - notes.length - merged, merged, drumsRemapped };
+}
 
 function stats(notes) {
   const avg = notes.reduce((a, n) => a + n.pitch, 0) / notes.length;
@@ -149,6 +254,13 @@ function tally(items, keyFn) {
  */
 export function analyzeSong(midi, name = "") {
   const parts = classifyParts(midi.tracks);
+  const cleanup = { removed: 0, merged: 0, drumsRemapped: false };
+  for (const p of parts) {
+    const r = cleanPart(p);
+    cleanup.removed += r.removed;
+    cleanup.merged += r.merged;
+    cleanup.drumsRemapped ||= r.drumsRemapped;
+  }
   const end = Math.max(...midi.tracks.flatMap((t) => t.notes.map((n) => n.start + n.duration)), 0);
   const bars = Math.max(1, Math.ceil(end / BEATS_PER_BAR - 1e-6));
   const pitched = parts.filter((p) => p.role !== "drums");
@@ -286,7 +398,14 @@ export function analyzeSong(midi, name = "") {
     for (let bar = 0; bar + 2 <= bars; bar += 2) {
       const ns = melPart.notes.filter((n) => n.start >= bar * BEATS_PER_BAR && n.start < (bar + 2) * BEATS_PER_BAR);
       if (ns.length < 3) continue;
-      const mono = ns.filter((n, i) => i === 0 || n.start - ns[i - 1].start > 0.05); // 和音は上の 1 音に
+      // 和音は一番上の 1 音に
+      const mono = [];
+      for (const n of ns) {
+        const last = mono[mono.length - 1];
+        if (last && n.start - last.start <= 0.05) {
+          if (n.pitch > last.pitch) mono[mono.length - 1] = n;
+        } else mono.push(n);
+      }
       const steps = mono.map((n, i) => (i === 0 ? 0 : degreeOf(n.pitch) - degreeOf(mono[i - 1].pitch)));
       melodyPhrases.push({ notes: mono.map((n, i) => ({ s: q16(n.start - bar * BEATS_PER_BAR), d: Math.max(0.25, q16(n.duration)), step: Math.max(-7, Math.min(7, steps[i])), v: n.velocity })) });
     }
@@ -298,6 +417,8 @@ export function analyzeSong(midi, name = "") {
     name: name || midi.name || "曲",
     tags: [],
     addedAt: new Date().toISOString(),
+    tempoFound: midi.tempoFound !== false,
+    cleanup,
     bpm: midi.bpm,
     timeSig: midi.timeSig,
     key,
@@ -321,6 +442,13 @@ export function describeSong(song) {
     progression: loop ? loop.chords.map((c) => intervalToRoman(c.interval, c.quality)).join(" - ") : "（検出できず）",
     roles: song.parts.filter((p) => p.role !== "other").map((p) => `${roleJa(p.role)}:${p.name}`).join(", "),
     counts: `グルーヴ${song.grooves.length} / ベース${song.bassPatterns.length} / バッキング${song.compPatterns.length} / メロディ${song.melodyPatterns.length}`,
+    notes: [
+      song.tempoFound === false ? "テンポ情報なし（120BPM として解析）" : "",
+      song.cleanup?.removed || song.cleanup?.merged ? `細切れ ${song.cleanup.merged}・ノイズ ${song.cleanup.removed} 音を整理` : "",
+      song.cleanup?.drumsRemapped ? "ドラムの音高を推定して割り当て" : "",
+    ]
+      .filter(Boolean)
+      .join(" / "),
   };
 }
 

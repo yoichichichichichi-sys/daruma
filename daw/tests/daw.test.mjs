@@ -364,3 +364,68 @@ test("参考曲・Studio Pro の日本語コマンド", () => {
   assert.deepEqual(steps("参考曲の型でアレンジ")[0][1].parts, ["drums", "bass", "comping"]);
   assert.deepEqual(steps("ベースだけMIDI書き出し")[0], ["export_midi", { track: "ベース" }]);
 });
+
+// ---------------- ステム分離 → MIDI 化したデータ ----------------
+import { groupStemFiles, mergeMidis, cleanPart, stemLabel } from "../js/library.js";
+
+test("ステム別ファイルを曲ごとにまとめる", () => {
+  const names = ["SongA_drums.mid", "SongA_bass.mid", "SongA (Vocals).mid", "SongA_other.mid", "SongB-ドラム.mid", "SongB-ベース.mid", "ballad.mid"];
+  const groups = groupStemFiles(names);
+  assert.deepEqual(groups.map((g) => [g.name, g.indexes]), [
+    ["SongA", [0, 1, 2, 3]],
+    ["SongB", [4, 5]],
+    ["ballad", [6]],
+  ]);
+  assert.equal(stemLabel("SongA_vocals.mid"), "vocals");
+  assert.equal(stemLabel("ballad.mid"), null);
+});
+
+test("オーディオから変換した MIDI（ノイズ入り）から型を学べる", () => {
+  // 元になる演奏（Eb メジャー、vi7-IVmaj7-V-I）
+  const ctx = newCtx();
+  runAction(ctx, "set_key", { key: "Eb" });
+  runAction(ctx, "write_chords", { chords: ["vi7", "IVmaj7", "V", "I"], repeat: 2, style: "pop" });
+  runAction(ctx, "generate_melody", { seed: 5 });
+  runAction(ctx, "generate_bass", { style: "eighth" });
+  runAction(ctx, "generate_drums", { style: "rock" });
+  const p = ctx.store.project;
+  const notesOf = (name) => findTrack(p, name).notes.map((n) => ({ ...n }));
+
+  // 変換で起きがちな崩れを再現する
+  const fragment = (notes) => notes.flatMap((n) => (n.duration >= 0.5 ? [{ ...n, duration: n.duration / 2 - 0.02 }, { ...n, start: n.start + n.duration / 2, duration: n.duration / 2 }] : [n]));
+  const ghosts = (notes) => [...notes, ...notes.slice(0, 10).map((n) => ({ ...n, start: n.start + 0.13, duration: 0.02, velocity: 8 }))];
+  const odd = { 36: 24, 38: 26, 42: 30, 49: 30, 45: 28, 50: 28 }; // GM ではない音高のドラム
+  const stems = [
+    ["Song_drums.mid", notesOf("ドラム").map((n) => ({ ...n, pitch: odd[n.pitch] ?? 30 }))],
+    ["Song_bass.mid", ghosts(fragment(notesOf("ベース")))],
+    ["Song_vocals.mid", ghosts(fragment(notesOf("メロディ")))],
+    ["Song_other.mid", notesOf("コード")],
+  ].map(([fileName, notes]) => ({ fileName, midi: { ppq: 480, bpm: 120, tempoFound: false, timeSig: [4, 4], name: "", tracks: [{ name: "", channel: 0, program: null, notes: notes.sort((a, b) => a.start - b.start) }] } }));
+
+  const song = analyzeSong(mergeMidis(stems, "Song"), "Song");
+  const roles = Object.fromEntries(song.parts.map((x) => [x.name, x.role]));
+  assert.deepEqual(roles, { drums: "drums", bass: "bass", vocals: "melody", other: "chords" });
+  assert.deepEqual(song.key, { root: 3, mode: "major" });
+  assert.deepEqual(song.progressions[0].chords.map((c) => c.interval), [9, 5, 7, 0]);
+  assert.ok(song.cleanup.drumsRemapped);
+  assert.ok(song.cleanup.merged > 10 && song.cleanup.removed >= 10, JSON.stringify(song.cleanup));
+  assert.equal(song.tempoFound, false);
+  // ドラムはキック・スネア・ハットとして復元される
+  const groove = song.grooves[0].pattern;
+  assert.equal(groove.kick, "x.....x.x.......");
+  assert.equal(groove.snare, "....x.......x...");
+  assert.ok(groove.hatClosed);
+  // ベースはルート 8 分の型として学べる（細切れがつながっている）
+  assert.ok(song.bassPatterns[0].notes.every((n) => n.iv === 0));
+  assert.equal(song.bassPatterns[0].notes.length, 8);
+});
+
+test("cleanPart はメロディを最高音、ベースを最低音で 1 音にする", () => {
+  const chordy = [60, 64, 67].map((pitch) => ({ pitch, start: 0, duration: 1, velocity: 90 }));
+  const mel = { role: "melody", notes: chordy.map((n) => ({ ...n })) };
+  cleanPart(mel);
+  assert.deepEqual(mel.notes.map((n) => n.pitch), [67]);
+  const bass = { role: "bass", notes: chordy.map((n) => ({ ...n })) };
+  cleanPart(bass);
+  assert.deepEqual(bass.notes.map((n) => n.pitch), [60]);
+});

@@ -38,6 +38,10 @@ const SYSTEM_PROMPT = `あなたは作曲家のアシスタントで、次の 3 
    - 「〇〇っぽく」「いつもと違うアレンジで」のような依頼では、ライブラリの型と自分の知識を組み合わせて提案の幅を広げる。
      seed を変えて複数案を作り、違いを説明して選んでもらうのもよい。
    - 参考曲のメロディをそのまま再現するようなノートを add_notes で書かない（借りるのはリズム・輪郭・手法まで）。
+   - ユーザーは Studio Pro のステム分離とオーディオ→MIDI 変換で、オーディオの曲から参考曲を作ることがある。手順を聞かれたら
+     「ステム分離 → 各ステムを MIDI 化 → 曲のテンポと小節頭を合わせる → ステムごとに『曲名_drums.mid』のような名前で書き出す →
+     参考曲ライブラリにまとめてドロップ」の流れで案内する（Studio Pro 内のメニュー名はバージョンで違う可能性があると断る）。
+     変換精度はコード（和音）が最も低く、ドラムとベースは比較的よく取れることも伝える。
 
 # 振る舞い
 - 曲を変更する依頼には、まずツールで実行してから、何をしたかを短く日本語で伝える。
@@ -68,7 +72,8 @@ export class ClaudeOperator {
   /**
    * @param {{apiKey:string, model?:string, ctx:object, notes?:string}} opts notes: ユーザーが貼った Studio Pro のマニュアル抜粋や自分用メモ
    */
-  constructor({ apiKey, model = MODELS[0].id, ctx, notes = "" }) {
+  constructor({ apiKey, model = MODELS[0].id, ctx, notes = "", os = "windows" }) {
+    this.os = os;
     this.apiKey = apiKey;
     this.notes = notes;
     this.model = model;
@@ -82,7 +87,8 @@ export class ClaudeOperator {
   }
 
   systemBlocks() {
-    const blocks = [{ type: "text", text: SYSTEM_PROMPT }];
+    const osLine = this.os === "mac" ? "ユーザーの OS は macOS（ショートカットは Cmd / Option で案内する）。" : "ユーザーの OS は Windows（ショートカットは Ctrl / Alt で案内し、仮想 MIDI ポートは loopMIDI を前提にする）。";
+    const blocks = [{ type: "text", text: `${SYSTEM_PROMPT}\n\n${osLine}` }];
     if (this.notes.trim()) blocks.push({ type: "text", text: `# ユーザーの参考資料（Studio Pro のマニュアル抜粋・メモなど）\n${this.notes.trim()}` });
     // 資料は会話中に変わらないので、ここまでをまとめてキャッシュする
     blocks[blocks.length - 1].cache_control = { type: "ephemeral" };

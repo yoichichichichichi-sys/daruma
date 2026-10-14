@@ -119,6 +119,9 @@
           <label class="stack">API キー <input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-..." /></label>
           <label class="stack">モデル <select id="model"></select></label>
           <label class="field check"><input id="use-claude" type="checkbox" /> Claude を使う（オフならルールベースのオペレーター）</label>
+          <label class="stack">OS（ショートカットや設定手順の案内に使います）
+            <select id="os"><option value="windows">Windows</option><option value="mac">macOS</option></select>
+          </label>
           <label class="stack">Studio Pro の参考資料（任意）
             <textarea id="notes" rows="5" placeholder="Studio Pro のマニュアルの抜粋、自分のショートカット設定、よく使う手順のメモなどを貼ると、操作の質問にこれを優先して答えます。"></textarea>
           </label>
@@ -126,9 +129,10 @@
         <fieldset>
           <legend>Studio Pro リモート（Mackie Control）</legend>
           <p class="muted">
-            仮想 MIDI ポートを 1 つ選びます。Studio Pro 側では「Studio Pro → オプション → 外部デバイス → 追加」で
-            Mackie Control を追加し、受信元／送信先にこのポートを指定してください（メニュー名はバージョンにより異なることがあります）。
-            下の「音を送る出力先」とは別のポートにしてください。
+            Windows では loopMIDI で <code>DarumaCtrl</code>・<code>DarumaFeedback</code>・<code>DarumaNotes</code> の 3 つのポートを作り、
+            ここでは <code>DarumaCtrl</code> を選びます。Studio Pro の外部デバイスで Mackie Control を追加し、
+            「受信元」= <code>DarumaCtrl</code>、「送信先」= <code>DarumaFeedback</code>（または なし）にします。
+            送信先を同じ DarumaCtrl にすると信号がループするので避けてください（メニュー名はバージョンにより異なることがあります）。
           </p>
           <label class="stack">Mackie Control 用ポート <select id="studio-out"><option value="">（なし）</option></select></label>
         </fieldset>
@@ -140,6 +144,7 @@
           </p>
           <label class="stack">出力先 <select id="midi-out"><option value="">（なし）</option></select></label>
           <label class="field check"><input id="internal-synth" type="checkbox" checked /> 内蔵シンセも鳴らす</label>
+          <p class="muted">Windows では <code>DarumaNotes</code> を選び、Studio Pro の音源トラックの入力を DarumaNotes にします。</p>
         </fieldset>
         <div class="dialog-actions">
           <button class="btn primary" value="ok">閉じる</button>
@@ -157,6 +162,10 @@
         メロディのリズムと輪郭を抜き出して貯めます。オペレーターに「参考曲の型でアレンジ」「参考曲から進行」などと頼むと、
         今の曲のキーとコードに当てはめて使います。タグ（例: ファンク, 90s, バラード）を付けると「参考曲『ファンク』のドラムで」のように絞り込めます。
         ファイルはこのブラウザの中だけで解析・保存し、外部には送りません。
+      </p>
+      <p class="muted">
+        Studio Pro でステム分離 → MIDI 化したものは、<code>曲名_drums.mid</code>・<code>曲名_bass.mid</code>・<code>曲名_vocals.mid</code>・<code>曲名_other.mid</code>
+        のようにステム名を含むファイル名でまとめてドロップすると、1 曲として読み込みます。細切れの音やノイズは自動で整理します。
       </p>
       <label id="drop" class="drop">
         <input id="library-files" type="file" accept=".mid,.midi,audio/midi" multiple hidden />

@@ -7,7 +7,7 @@ import { runAction, findAction } from "./actions.js";
 import { parseCommand, HELP_TEXT } from "./operator.js";
 import { analyzeProject } from "./assistant.js";
 import { projectToMidi, parseMidi } from "./midi.js";
-import { Library, analyzeSong, describeSong, classifyParts, roleJa } from "./library.js";
+import { Library, analyzeSong, describeSong, classifyParts, roleJa, groupStemFiles, mergeMidis } from "./library.js";
 import { StudioProRemote } from "./studiopro.js";
 import { Engine } from "./engine.js";
 import { ClaudeOperator, MODELS } from "./claude.js";
@@ -38,7 +38,7 @@ function isValidProject(p) {
 
 const saved = loadJSON(PROJECT_KEY);
 const store = new Store(isValidProject(saved) ? saved : createDefaultProject());
-const settings = { apiKey: "", model: MODELS[0].id, useClaude: false, midiOutId: "", studioOutId: "", internalSynth: true, notes: "", ...(loadJSON(SETTINGS_KEY) || {}) };
+const settings = { apiKey: "", model: MODELS[0].id, useClaude: false, midiOutId: "", studioOutId: "", internalSynth: true, notes: "", os: "windows", ...(loadJSON(SETTINGS_KEY) || {}) };
 const library = new Library();
 const studio = new StudioProRemote();
 
@@ -648,7 +648,7 @@ async function handleInput(text, { forceRules = false } = {}) {
   busy = true;
   const pending = addMessage("bot pending", "考えています…");
   try {
-    claude ??= new ClaudeOperator({ apiKey: settings.apiKey, model: settings.model, ctx, notes: settings.notes });
+    claude ??= new ClaudeOperator({ apiKey: settings.apiKey, model: settings.model, ctx, notes: settings.notes, os: settings.os });
     await claude.send(text, {
       onText: (t) => chat.insertBefore(makeMsg("bot", t), pending),
       onTool: (name, input, r) => chat.insertBefore(makeMsg(r.ok ? "tool" : "tool err", `🎛 ${findAction(name)?.title ?? name}: ${r.message.split("\n")[0]}`), pending),
@@ -715,6 +715,7 @@ async function openSettings() {
   $("use-claude").checked = settings.useClaude;
   $("internal-synth").checked = settings.internalSynth;
   $("notes").value = settings.notes;
+  $("os").value = settings.os;
   await refreshMidiOutputs();
   $("settings").showModal();
 }
@@ -760,11 +761,12 @@ $("settings").addEventListener("close", () => {
     settings.midiOutId = "";
     addMessage("bot", "「音を送る出力先」と「Mackie Control 用ポート」が同じだったため、音の出力をオフにしました。別々の仮想ポートを使ってください。");
   }
-  const prevNotes = settings.notes;
+  const prevNotes = settings.notes + settings.os;
   settings.notes = $("notes").value;
+  settings.os = $("os").value;
   engine.useInternalSynth = settings.internalSynth;
   applyMidiOut();
-  if (prevKey !== settings.apiKey || prevModel !== settings.model || prevNotes !== settings.notes) claude = null;
+  if (prevKey !== settings.apiKey || prevModel !== settings.model || prevNotes !== settings.notes + settings.os) claude = null;
   saveJSON(SETTINGS_KEY, settings);
   renderModeBadge();
 });
@@ -861,7 +863,7 @@ function renderLibrary() {
       row.append(name, use, del);
       const meta = document.createElement("div");
       meta.className = "lib-meta";
-      meta.textContent = `${d.key} / ${song.bpm}BPM / ${song.bars}小節 / 進行 ${d.progression}\n${d.counts}${d.roles ? " / " + d.roles : ""}`;
+      meta.textContent = `${d.key} / ${song.bpm}BPM / ${song.bars}小節 / 進行 ${d.progression}\n${d.counts}${d.roles ? " / " + d.roles : ""}${d.notes ? "\n" + d.notes : ""}`;
       meta.style.whiteSpace = "pre-wrap";
       const tags = document.createElement("input");
       tags.placeholder = "タグ（カンマ区切り）例: ファンク, 90s";
@@ -876,17 +878,30 @@ function renderLibrary() {
 async function addLibraryFiles(files) {
   const added = [];
   const failed = [];
-  for (const file of files) {
+  // ステム別に書き出したファイル（曲名_drums.mid など）は 1 曲にまとめる
+  for (const group of groupStemFiles(files.map((f) => f.name))) {
+    const members = group.indexes.map((i) => files[i]);
     try {
-      const song = analyzeSong(parseMidi(await file.arrayBuffer()), file.name.replace(/\.midi?$/i, ""));
-      added.push(song.name);
+      const parsed = [];
+      for (const file of members) {
+        try {
+          parsed.push({ fileName: file.name, midi: parseMidi(await file.arrayBuffer()) });
+        } catch (err) {
+          failed.push(`${file.name}: ${err.message}`);
+        }
+      }
+      if (!parsed.length) continue;
+      const midi = parsed.length === 1 ? parsed[0].midi : mergeMidis(parsed, group.name);
+      const song = analyzeSong(midi, group.name);
+      const label = parsed.length > 1 ? `${song.name}（ステム ${parsed.length} 本: ${parsed.map((p) => p.fileName).join(", ")}）` : song.name;
+      added.push(label);
       if (!library.add(song)) failed.push(`${song.name}（保存容量が足りません。ライブラリを .json に保存して整理してください）`);
     } catch (err) {
-      failed.push(`${file.name}: ${err.message}`);
+      failed.push(`${group.name}: ${err.message}`);
     }
   }
   renderLibrary();
-  if (added.length) addMessage("bot", `参考曲を ${added.length} 曲読み込みました: ${added.join("、")}`, [{ label: "参考曲の型でアレンジ", action: "library_arrange", input: {} }, { label: "参考曲から進行", action: "library_progression", input: {} }]);
+  if (added.length) addMessage("bot", `参考曲を ${added.length} 曲読み込みました:\n${added.join("\n")}`, [{ label: "参考曲の型でアレンジ", action: "library_arrange", input: {} }, { label: "参考曲から進行", action: "library_progression", input: {} }]);
   if (failed.length) addMessage("tool err", `読み込めなかったもの:\n${failed.join("\n")}`);
 }
 

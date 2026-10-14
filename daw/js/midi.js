@@ -89,7 +89,7 @@ export function projectToMidi(p, { trackIds } = {}) {
 /**
  * SMF（Type 0/1）を解析する。時間は拍（4分音符 = 1）に換算して返す。
  * @param {Uint8Array|ArrayBuffer} input
- * @returns {{ppq:number, bpm:number, timeSig:[number, number], name:string, tracks:{name:string, channel:number, program:number|null, notes:{pitch:number,start:number,duration:number,velocity:number}[]}[]}}
+ * @returns {{ppq:number, bpm:number, tempoFound:boolean, timeSig:[number, number], name:string, tracks:{name:string, channel:number, program:number|null, notes:{pitch:number,start:number,duration:number,velocity:number}[]}[]}}
  */
 export function parseMidi(input) {
   const b = input instanceof Uint8Array ? input : new Uint8Array(input);
@@ -205,5 +205,5 @@ export function parseMidi(input) {
   const tracks = [...byKey.values()]
     .filter((t) => t.notes.length)
     .map((t) => ({ name: t.name || (t.channel === 9 ? "Drums" : `Ch${t.channel + 1}`), channel: t.channel, program: t.program, notes: t.notes.sort((a, c) => a.start - c.start || a.pitch - c.pitch) }));
-  return { ppq, bpm: Math.round(bpm ?? 120), timeSig, name: songName, tracks };
+  return { ppq, bpm: Math.round(bpm ?? 120), tempoFound: bpm != null, timeSig, name: songName, tracks };
 }
