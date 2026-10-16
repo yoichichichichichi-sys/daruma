@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/paper"
+    android:orientation="vertical"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp">
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/keyboard_tabs"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp" />
+    </HorizontalScrollView>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="230dp"
+        android:layout_marginTop="6dp">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/keyboard_clip_list"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp" />
+
+        <TextView
+            android:id="@+id/keyboard_empty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="@string/keyboard_empty_message"
+            android:textColor="@color/ink_faint"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
+
+        <TextView
+            android:id="@+id/key_switch"
+            style="@style/KeyboardKey"
+            android:layout_width="56dp"
+            android:contentDescription="@string/key_switch_description"
+            android:text="🌐" />
+
+        <TextView
+            android:id="@+id/key_space"
+            style="@style/KeyboardKey"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:text="@string/key_space" />
+
+        <TextView
+            android:id="@+id/key_backspace"
+            style="@style/KeyboardKey"
+            android:layout_width="56dp"
+            android:contentDescription="@string/key_backspace_description"
+            android:text="⌫" />
+
+        <TextView
+            android:id="@+id/key_enter"
+            style="@style/KeyboardKey"
+            android:layout_width="64dp"
+            android:layout_marginEnd="0dp"
+            android:text="↵" />
+    </LinearLayout>
+</LinearLayout>

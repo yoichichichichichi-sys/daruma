@@ -18,4 +18,13 @@
     <string name="enable_accessibility_action">設定を開く</string>
     <string name="accessibility_service_description">クリップボードにコピーされた内容を自動で履歴に保存するために使用します。画面の内容そのものは読み取りません。</string>
     <string name="widget_empty_message">コピーした内容がここに表示されます</string>
+    <string name="keyboard_name">コピペ帳キーボード</string>
+    <string name="keyboard_empty_message">このカテゴリにはまだ何もありません</string>
+    <string name="key_space">空白</string>
+    <string name="key_switch_description">元のキーボードに戻る</string>
+    <string name="key_backspace_description">1文字削除</string>
+    <string name="category_all">すべて</string>
+    <string name="keyboard_banner_message">「コピペ帳キーボード」をオンにすると、どのアプリでも入力中にキーボード切替(🌐)を押すだけで、保存した一覧から好きなものを選んで貼り付けられます。</string>
+    <string name="enable_keyboard_action">キーボード設定を開く</string>
+    <string name="pick_keyboard_action">キーボードを切り替える</string>
 </resources>

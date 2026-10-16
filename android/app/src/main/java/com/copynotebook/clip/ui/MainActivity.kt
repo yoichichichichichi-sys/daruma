@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.text.TextUtils
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
@@ -14,7 +15,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.android.material.chip.Chip
 import com.copynotebook.clip.R
+import com.copynotebook.clip.data.ClipCategory
 import com.copynotebook.clip.databinding.ActivityMainBinding
 import kotlinx.coroutines.launch
 
@@ -65,6 +68,15 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
 
+        binding.enableKeyboardButton.setOnClickListener {
+            startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+        }
+        binding.pickKeyboardButton.setOnClickListener {
+            getSystemService(InputMethodManager::class.java).showInputMethodPicker()
+        }
+
+        setUpCategoryChips()
+
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.listItems.collect { items ->
@@ -79,6 +91,27 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         binding.accessibilityBanner.visibility =
             if (isAccessibilityServiceEnabled()) View.GONE else View.VISIBLE
+        binding.keyboardBanner.visibility =
+            if (isClipKeyboardEnabled()) View.GONE else View.VISIBLE
+    }
+
+    private fun setUpCategoryChips() {
+        val options = listOf<ClipCategory?>(null) + ClipCategory.values()
+        options.forEach { category ->
+            val chip = Chip(this).apply {
+                id = View.generateViewId()
+                text = category?.let { "${it.emoji} ${it.label}" } ?: getString(R.string.category_all)
+                isCheckable = true
+                isChecked = category == null
+                setOnClickListener { viewModel.setCategoryFilter(category) }
+            }
+            binding.categoryChips.addView(chip)
+        }
+    }
+
+    private fun isClipKeyboardEnabled(): Boolean {
+        val imm = getSystemService(InputMethodManager::class.java)
+        return imm.enabledInputMethodList.any { it.packageName == packageName }
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {

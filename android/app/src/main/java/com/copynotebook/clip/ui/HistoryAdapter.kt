@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.copynotebook.clip.R
 import com.copynotebook.clip.data.ClipEntry
+import com.copynotebook.clip.data.category
 import com.copynotebook.clip.util.DateFormatting
 
 class HistoryAdapter(
@@ -63,7 +64,8 @@ class HistoryAdapter(
 
         fun bind(entry: ClipEntry) {
             textView.text = entry.text
-            timeView.text = DateFormatting.timeLabel(entry.createdAt)
+            val category = entry.category
+            timeView.text = "${category.emoji} ${category.label} · ${DateFormatting.timeLabel(entry.createdAt)}"
 
             val pinColor = ContextCompat.getColor(
                 itemView.context,

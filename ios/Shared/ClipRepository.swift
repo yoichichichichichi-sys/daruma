@@ -30,6 +30,22 @@ enum ClipRepository {
         }
     }
 
+    /// Load-modify-save version of ClipStore.capture, for the keyboard
+    /// extension (which has no ClipStore). Same de-dupe rule: an identical
+    /// clip is moved back to the top instead of being saved twice.
+    static func capture(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        var entries = loadAll()
+        if let index = entries.firstIndex(where: { $0.text == trimmed }) {
+            entries[index].createdAt = Date()
+        } else {
+            entries.append(ClipEntry(text: trimmed))
+        }
+        saveAll(entries)
+    }
+
     /// Index into `ordered()` that the widget is currently showing. Shared
     /// through the App Group's UserDefaults so the widget's prev/next
     /// buttons and its timeline stay in sync with each other.

@@ -8,6 +8,8 @@ import WidgetKit
 final class ClipStore: ObservableObject {
     @Published private(set) var entries: [ClipEntry] = []
     @Published var searchQuery: String = ""
+    /// nil = show every category.
+    @Published var categoryFilter: ClipCategory?
 
     init() {
         entries = ClipRepository.ordered()
@@ -66,8 +68,10 @@ final class ClipStore: ObservableObject {
     }
 
     var filtered: [ClipEntry] {
-        guard !searchQuery.isEmpty else { return entries }
-        return entries.filter { $0.text.localizedCaseInsensitiveContains(searchQuery) }
+        entries.filter { entry in
+            (searchQuery.isEmpty || entry.text.localizedCaseInsensitiveContains(searchQuery)) &&
+                (categoryFilter == nil || entry.category == categoryFilter)
+        }
     }
 
     var pinnedEntries: [ClipEntry] {

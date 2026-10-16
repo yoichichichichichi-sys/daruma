@@ -27,6 +27,8 @@ targets:
     dependencies:
       - target: CopyNotebookWidgetExtension
         embed: true
+      - target: CopyNotebookKeyboardExtension
+        embed: true
 
   CopyNotebookWidgetExtension:
     type: app-extension
@@ -42,4 +44,23 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.copynotebook.app.widget
         PRODUCT_NAME: コピペ帳ウィジェット
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  CopyNotebookKeyboardExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Shared
+      - path: CopyNotebookKeyboard
+    info:
+      path: CopyNotebookKeyboard/Info.plist
+    entitlements:
+      path: CopyNotebookKeyboard/CopyNotebookKeyboard.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.copynotebook.app.keyboard
+        PRODUCT_NAME: コピペ帳キーボード
+        # Info.plist's NSExtensionPrincipalClass is "$(PRODUCT_MODULE_NAME).KeyboardViewController";
+        # pin an ASCII module name so it doesn't depend on how the Japanese product name is mangled.
+        PRODUCT_MODULE_NAME: CopyNotebookKeyboard
         TARGETED_DEVICE_FAMILY: "1,2"

@@ -13,6 +13,8 @@ struct CopyNotebookApp: App {
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
+                // The keyboard extension may have saved clips while we were away.
+                store.refresh()
                 captureFromPasteboardIfNeeded()
             }
         }

@@ -25,6 +25,13 @@ Android版と同じ考え方の履歴ツールですが、iOSの制約に合わ�
 
 ## できること
 
+- **コピペ帳キーボード（一覧から選んで貼り付け）**: どのアプリでも、入力中に
+  🌐 キーで「コピペ帳」キーボードに切り替えると、保存した一覧が並びます。
+  タップした項目がカーソル位置に入力され、🌐 で元のキーボードに戻ります。
+  📋 ボタンで「今クリップボードにある内容」を一覧に追加することもできます
+- **自動の整理整頓**: 「🔗 リンク / ✉️ メール / 📞 電話番号 / 🔢 数字・コード /
+  📝 テキスト」に自動分類。一覧画面とキーボードのタブで絞り込めます
+
 - 日付別の履歴（今日／昨日／9月3日(木)のようなセクション）とピン留めセクション
 - 検索、削除（スワイプ）、ピン留め（スワイプ）
 - テキストを直接貼り付けて保存
@@ -49,7 +56,8 @@ Linux環境にはSwiftツールチェインもXcodeも無いため、**コンパ
    xcodegen generate
    open CopyNotebook.xcodeproj
    ```
-3. Xcodeで両方のターゲット（`CopyNotebook` と `CopyNotebookWidgetExtension`）の
+3. Xcodeで3つのターゲット（`CopyNotebook`、`CopyNotebookWidgetExtension`、
+   `CopyNotebookKeyboardExtension`）の
    Signing & Capabilities を開き、自分のApple ID / チームを設定する
 
 ### 方法B: 手動でXcodeプロジェクトを作る
@@ -65,6 +73,9 @@ XcodeGenを使わない場合は、Xcodeで以下を作成し、このフォル�
    Intent" のチェックは外す）
 4. `Shared/` と `CopyNotebookWidget/` の中身をウィジェットのターゲットに追加
    （生成されたテンプレートのSwiftファイルは削除して、こちらに差し替え）
+5. File → New → Target → **Custom Keyboard Extension** を追加し、`Shared/` と
+   `CopyNotebookKeyboard/` の中身をそのターゲットに追加（テンプレートの
+   `KeyboardViewController.swift` と `Info.plist` はこちらに差し替え）
 
 ### 必須の手動設定: App Group
 
@@ -77,8 +88,18 @@ XcodeGenを使わない場合は、Xcodeで以下を作成し、このフォル�
 2. 「+」で新しいグループを作成（例: `group.com.copynotebook.shared`。任意の
    識別子でも構いませんが、その場合は `Shared/AppGroup.swift` の
    `identifier` もその文字列に書き換えてください）
-3. ウィジェットのターゲットでも同じ手順を繰り返し、**同じグループ**にチェックを
-   入れる（これを忘れるとアプリとウィジェットでデータが共有されません）
+3. ウィジェットのターゲット・キーボードのターゲットでも同じ手順を繰り返し、
+   **同じグループ**にチェックを入れる（これを忘れるとアプリとウィジェット・
+   キーボードでデータが共有されません）
+
+### キーボードを使えるようにする
+
+1. 設定 → 一般 → キーボード → キーボード → 新しいキーボードを追加 →「コピペ帳」
+2. 追加した「コピペ帳」を開き、**フルアクセスを許可** をオンにする
+   - iOS ではフルアクセスが無いとキーボードがアプリと共有のデータ（App Group）を
+     読めないため、一覧が表示できません。通信や入力内容の送信は一切していません
+3. App Group の設定（上記）は、キーボードのターゲット
+   `CopyNotebookKeyboardExtension` にも同じグループで追加してください
 
 ### ホーム画面への追加
 
@@ -93,6 +114,7 @@ ios/
 ├── Shared/                              アプリとウィジェットの両方が使う共有コード
 │   ├── AppGroup.swift                   App Groupの識別子・共有コンテナ
 │   ├── ClipEntry.swift                  データモデル
+│   ├── ClipCategory.swift               自動分類（リンク/メール/電話番号…）
 │   └── ClipRepository.swift             App Group内のJSONファイルへの読み書き
 ├── CopyNotebook/                        アプリ本体（SwiftUI）
 │   ├── CopyNotebookApp.swift            起動時の自動取り込み
@@ -102,6 +124,11 @@ ios/
 │   ├── PasteControlView.swift           確認シートなしで貼り付けられるボタン
 │   ├── Info.plist
 │   └── CopyNotebook.entitlements
+├── CopyNotebookKeyboard/                キーボード拡張（一覧から選んで貼り付け）
+│   ├── KeyboardViewController.swift
+│   ├── ClipKeyboardView.swift
+│   ├── Info.plist
+│   └── CopyNotebookKeyboard.entitlements
 └── CopyNotebookWidget/                  ウィジェット拡張
     ├── CopyNotebookWidgetBundle.swift
     ├── ClipWidget.swift                 ウィジェットの見た目とタイムライン

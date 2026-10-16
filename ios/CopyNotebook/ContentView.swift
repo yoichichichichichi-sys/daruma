@@ -38,6 +38,19 @@ struct ContentView: View {
                     .padding(.vertical, 4)
                 }
 
+                Section {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            categoryChip(title: "すべて", category: nil)
+                            ForEach(ClipCategory.allCases) { category in
+                                categoryChip(title: "\(category.emoji) \(category.label)", category: category)
+                            }
+                        }
+                    }
+                    .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                    .listRowBackground(Color.clear)
+                }
+
                 if !store.pinnedEntries.isEmpty {
                     Section("📌 ピン留め") {
                         ForEach(store.pinnedEntries) { entry in
@@ -83,5 +96,17 @@ struct ContentView: View {
                 Button("キャンセル", role: .cancel) {}
             }
         }
+    }
+
+    private func categoryChip(title: String, category: ClipCategory?) -> some View {
+        let selected = store.categoryFilter == category
+        return Button(title) { store.categoryFilter = category }
+            .font(.footnote)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .foregroundStyle(selected ? Color.white : Color.primary)
+            .background(selected ? Color.accentColor : Color(uiColor: .secondarySystemGroupedBackground),
+                        in: Capsule())
+            .buttonStyle(.plain)
     }
 }

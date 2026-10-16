@@ -11,9 +11,12 @@ struct ClipRowView: View {
                 .lineLimit(3)
                 .font(.body)
 
-            Text(entry.createdAt, style: .time)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                Text("\(entry.category.emoji) \(entry.category.label) ·")
+                Text(entry.createdAt, style: .time)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
         .contentShape(Rectangle())
         .onTapGesture {
