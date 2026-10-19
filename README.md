@@ -14,6 +14,9 @@
   クリップボード読み取りが禁止されているため、「アプリを開いた瞬間に取り込む」
   ＋「ウィジェットは矢印ボタンで前後に送る」という形になっています。詳細は
   [`ios/README.md`](ios/README.md) を参照してください。
+- **`uafx-web/`** — （別ツール）Universal Audio UAFX ペダルを PC のブラウザから
+  操作・解析する非公式コントローラー（Web MIDI / Web Bluetooth / WebUSB）。詳細は
+  [`uafx-web/README.md`](uafx-web/README.md) を参照してください。
 
 いずれの native アプリもこのセッションの実行環境（Android SDK / Xcode に
 ネットワーク・OS 制約でアクセスできないクラウド Linux コンテナ）では

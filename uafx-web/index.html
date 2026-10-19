@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>UAFX Web Control</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="app-header">
+  <h1>🎛️ UAFX Web Control</h1>
+  <p class="subtitle">UAFX ペダルを PC のブラウザから操作するための非公式コントローラー</p>
+  <p id="support-banner" class="banner" hidden></p>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab is-active" data-tab="control" role="tab">コントロール</button>
+  <button class="tab" data-tab="midi" role="tab">MIDI</button>
+  <button class="tab" data-tab="ble" role="tab">Bluetooth 解析</button>
+  <button class="tab" data-tab="usb" role="tab">USB 解析</button>
+  <button class="tab" data-tab="profile" role="tab">プロファイル</button>
+</nav>
+
+<main class="container">
+  <!-- ===== コントロール ===== -->
+  <section class="panel" data-panel="control">
+    <div class="card">
+      <div class="row">
+        <label>プロファイル
+          <select id="profile-select"></select>
+        </label>
+        <span id="transport-status" class="status status-off">未接続</span>
+      </div>
+      <p id="profile-note" class="muted"></p>
+    </div>
+
+    <div class="card">
+      <h2>プリセット</h2>
+      <div id="preset-buttons" class="preset-row"></div>
+    </div>
+
+    <div class="card">
+      <h2>コントロール</h2>
+      <div id="controls" class="controls"></div>
+      <p class="muted small">「Learn」を押してからペダル本体のノブを回すと、受信した MIDI CC 番号がそのコントロールに割り当てられます（ペダルが CC を送信する場合のみ）。</p>
+    </div>
+  </section>
+
+  <!-- ===== MIDI ===== -->
+  <section class="panel" data-panel="midi" hidden>
+    <div class="card">
+      <h2>Web MIDI 接続</h2>
+      <p class="muted">ペダルの USB-C を PC に直結（またはUSB MIDI インターフェース経由）して接続します。Chrome / Edge 推奨。</p>
+      <div class="row">
+        <button id="midi-enable" class="btn btn-primary">MIDI を有効化</button>
+        <label>出力 <select id="midi-out"></select></label>
+        <label>入力 <select id="midi-in"></select></label>
+        <label>Ch <input id="midi-ch" type="number" min="1" max="16" value="1" class="num" /></label>
+      </div>
+    </div>
+    <div class="card">
+      <h2>手動送信</h2>
+      <div class="row">
+        <label>CC# <input id="cc-num" type="number" min="0" max="127" value="1" class="num" /></label>
+        <label>値 <input id="cc-val" type="number" min="0" max="127" value="64" class="num" /></label>
+        <button id="cc-send" class="btn btn-secondary">CC 送信</button>
+        <label>PC# <input id="pc-num" type="number" min="0" max="127" value="0" class="num" /></label>
+        <button id="pc-send" class="btn btn-secondary">Program Change 送信</button>
+      </div>
+      <div class="row">
+        <input id="raw-midi" type="text" placeholder="生 MIDI (hex) 例: B0 07 7F / F0 ... F7" class="grow mono" />
+        <button id="raw-midi-send" class="btn btn-secondary">送信</button>
+      </div>
+      <div class="row">
+        <label>CC スイープ
+          <input id="sweep-from" type="number" min="0" max="127" value="0" class="num" /> 〜
+          <input id="sweep-to" type="number" min="0" max="127" value="127" class="num" />
+        </label>
+        <button id="sweep-run" class="btn btn-secondary">各 CC に値 64 を順番に送る</button>
+      </div>
+      <p class="muted small">スイープは、ドキュメントにない CC がどのパラメーターに効くかを調べるためのものです。音量に注意してください。</p>
+    </div>
+  </section>
+
+  <!-- ===== BLE ===== -->
+  <section class="panel" data-panel="ble" hidden>
+    <div class="card">
+      <h2>Web Bluetooth GATT エクスプローラー</h2>
+      <p class="muted">Web Bluetooth は、事前に申告したサービス UUID にしかアクセスできません。スマホの nRF Connect などでペダルのサービス UUID を確認し、下に入力してください（カンマ区切り）。<br />※ 接続中はスマホの UAFX Control アプリを終了しておいてください。</p>
+      <div class="row">
+        <input id="ble-services" type="text" class="grow mono" placeholder="例: 0000xxxx-0000-1000-8000-00805f9b34fb, battery_service" />
+      </div>
+      <div class="row">
+        <input id="ble-name-prefix" type="text" placeholder="名前の先頭一致フィルタ（空なら全デバイス）" class="grow" />
+        <button id="ble-connect" class="btn btn-primary">スキャンして接続</button>
+        <button id="ble-disconnect" class="btn btn-danger" disabled>切断</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>サービス / キャラクタリスティック</h2>
+      <div id="ble-tree" class="tree muted">未接続</div>
+    </div>
+  </section>
+
+  <!-- ===== USB ===== -->
+  <section class="panel" data-panel="usb" hidden>
+    <div class="card">
+      <h2>WebUSB デスクリプタビューア</h2>
+      <p class="muted">USB-C 直結時にペダルが何として認識されているか（ベンダー ID・インターフェース構成）を確認します。オーディオ / MIDI クラスのインターフェースはブラウザの保護対象のため WebUSB からは開けません。MIDI として見えている場合は「MIDI」タブを使ってください。</p>
+      <div class="row">
+        <button id="usb-pick" class="btn btn-primary">USB デバイスを選択</button>
+      </div>
+      <pre id="usb-info" class="mono pre">未選択</pre>
+      <div class="row">
+        <label>Interface <input id="usb-iface" type="number" min="0" value="0" class="num" /></label>
+        <label>EP(OUT) <input id="usb-ep-out" type="number" min="1" value="1" class="num" /></label>
+        <label>EP(IN) <input id="usb-ep-in" type="number" min="1" value="1" class="num" /></label>
+        <button id="usb-claim" class="btn btn-secondary">Claim</button>
+      </div>
+      <div class="row">
+        <input id="usb-data" type="text" placeholder="送信データ (hex)" class="grow mono" />
+        <button id="usb-send" class="btn btn-secondary">transferOut</button>
+        <button id="usb-read" class="btn btn-secondary">transferIn (64B)</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Profile ===== -->
+  <section class="panel" data-panel="profile" hidden>
+    <div class="card">
+      <h2>デバイスプロファイル (JSON)</h2>
+      <p class="muted">ノブとプリセットをどのメッセージに割り当てるかを定義します。同梱のプロファイルの CC 番号は<strong>仮の値</strong>です。お使いのペダルのマニュアル（MIDI 実装表）か「MIDI」タブでの調査結果に合わせて書き換えてください。書式は README を参照。</p>
+      <textarea id="profile-json" class="mono" rows="22" spellcheck="false"></textarea>
+      <div class="row">
+        <button id="profile-save" class="btn btn-primary">保存して適用</button>
+        <button id="profile-new" class="btn btn-secondary">複製して新規作成</button>
+        <button id="profile-export" class="btn btn-secondary">エクスポート</button>
+        <label class="btn btn-secondary file-btn">インポート<input id="profile-import" type="file" accept="application/json" hidden /></label>
+        <button id="profile-delete" class="btn btn-danger">削除</button>
+        <button id="profile-reset" class="btn btn-danger">同梱プロファイルに戻す</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Log (共通) ===== -->
+  <section class="card log-card">
+    <div class="row">
+      <h2 class="grow">通信ログ</h2>
+      <label class="small"><input id="log-pause" type="checkbox" /> 一時停止</label>
+      <button id="log-export" class="btn btn-secondary">保存 (.txt)</button>
+      <button id="log-clear" class="btn btn-secondary">クリア</button>
+    </div>
+    <ol id="log" class="log mono"></ol>
+  </section>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
