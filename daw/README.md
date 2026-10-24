@@ -10,13 +10,13 @@
 
 ビルド不要の静的 HTML/CSS/JS（ES Modules）です。
 
-**Windows**: `daw` フォルダの **`start.bat` をダブルクリック**するとブラウザで開きます（Windows 標準の PowerShell だけで動くので Python は不要）。
+**Windows**: このフォルダ直下の **`start.bat` をダブルクリック**するとブラウザで開きます（Windows 標準の PowerShell だけで動くので Python は不要）。
 黒い画面を閉じると止まります。
 
 **Mac / Linux / Python がある場合**:
 
 ```bash
-cd daw
+# このフォルダで
 python3 -m http.server 8000   # または npm start
 # http://localhost:8000 を開く
 ```
@@ -161,7 +161,9 @@ Claude がこのアプリのすべての操作（スケッチ DAW の編集・�
 ## 構成
 
 ```
-daw/
+studio-pro-assistant/
+├── CLAUDE.md / docs/HANDOFF.md   開発の引継ぎ情報（経緯・ユーザー環境・確認状況）
+├── start.bat / start.ps1        Windows 用の起動スクリプト
 ├── index.html / style.css
 ├── js/
 │   ├── app.js        画面・ピアノロール・チャット・ライブラリ／リモート画面
@@ -185,7 +187,7 @@ daw/
 ## テスト
 
 ```bash
-cd daw && npm test    # Node.js 18+、依存パッケージ不要
+npm test    # Node.js 18+、依存パッケージ不要
 ```
 
 音楽理論、フレーズ生成、アクション、日本語コマンドの解析、MIDI ファイルの読み書き、
