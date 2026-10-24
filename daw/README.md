@@ -197,4 +197,5 @@ cd daw && npm test    # Node.js 18+、依存パッケージ不要
 - Web MIDI（Studio Pro の操作・音の送信）は Chrome / Edge などの対応ブラウザのみ
 - 参考曲は 4/4 として解析します。コード検出は自動推定なので、テンションの多い曲や転調する曲では目安程度です
 - オーディオ（WAV/MP3）は読み込めません。Studio Pro などで MIDI にしてから読み込んでください
-- Studio Pro との接続は、Studio Pro 実機ではまだ確認できていません（MCU の標準仕様どおりの信号を送ることはテストで確認済み）
+- Studio Pro 実機（Windows + loopMIDI）では、Mackie Control での再生・停止と、MIDI 書き出し → Studio Pro へのドラッグまで確認済み。
+  ループ・クリック・トラックのミュート/ソロ/選択・フェーダーなど、その他のボタンはまだ実機で確認していません
