@@ -10,11 +10,18 @@
 
 ビルド不要の静的 HTML/CSS/JS（ES Modules）です。
 
+**Windows**: `daw` フォルダの **`start.bat` をダブルクリック**するとブラウザで開きます（Windows 標準の PowerShell だけで動くので Python は不要）。
+黒い画面を閉じると止まります。
+
+**Mac / Linux / Python がある場合**:
+
 ```bash
 cd daw
 python3 -m http.server 8000   # または npm start
 # http://localhost:8000 を開く
 ```
+
+`index.html` をダブルクリックして直接開くと（`file://`）、ブラウザの制限で動きません。必ず上のどちらかで開いてください。
 
 ## できること
 
